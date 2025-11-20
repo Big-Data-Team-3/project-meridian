@@ -1,0 +1,6 @@
+gdelt==0.1.14
+fredapi==0.5.2
+sec-edgar-api==1.1.0
+secedgar==0.6.0
+sec-edgar-downloader==5.0.3
+finnhub-python==2.4.25
