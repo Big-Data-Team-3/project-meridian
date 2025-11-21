@@ -252,6 +252,105 @@ except Exception as e:
     print(f"✗ Finnhub failed: {type(e).__name__}: {e}")
 
 # ============================================================================
+# 7. yfinance - Yahoo Finance Data
+# ============================================================================
+print("\n[7] Testing yfinance...")
+try:
+    import yfinance as yf
+    
+    print(f"✓ yfinance imported successfully")
+    
+    # Create a ticker object for Apple
+    try:
+        print("  Creating ticker object for AAPL...")
+        ticker = yf.Ticker("AAPL")
+        print(f"  ✓ Ticker object created: {type(ticker)}")
+        
+        # Get stock info
+        try:
+            print("  Attempting to fetch stock info...")
+            info = ticker.info
+            print(f"  ✓ Stock info retrieved: {type(info)}")
+            if isinstance(info, dict):
+                print(f"  Number of info fields: {len(info)}")
+                print(f"  Sample fields: {list(info.keys())[:10]}")
+                if 'currentPrice' in info:
+                    print(f"  Current Price: ${info.get('currentPrice', 'N/A')}")
+                if 'marketCap' in info:
+                    print(f"  Market Cap: ${info.get('marketCap', 'N/A'):,}")
+        except Exception as e:
+            print(f"  ⚠ Could not fetch stock info: {type(e).__name__}: {e}")
+        
+        # Get historical data
+        try:
+            print("  Attempting to fetch historical data (last 5 days)...")
+            hist = ticker.history(period="5d")
+            print(f"  ✓ Historical data retrieved: {type(hist)}")
+            if hasattr(hist, 'shape'):
+                print(f"  Data shape: {hist.shape}")
+                print(f"  Columns: {list(hist.columns)}")
+                if len(hist) > 0:
+                    print(f"  Latest close price: ${hist['Close'].iloc[-1]:.2f}")
+                    print(f"  Date range: {hist.index[0].date()} to {hist.index[-1].date()}")
+        except Exception as e:
+            print(f"  ⚠ Could not fetch historical data: {type(e).__name__}: {e}")
+        
+        # Get current price data
+        try:
+            print("  Attempting to fetch current price data...")
+            data = ticker.fast_info
+            print(f"  ✓ Fast info retrieved: {type(data)}")
+            if hasattr(data, 'lastPrice'):
+                print(f"  Last Price: ${data.lastPrice}")
+            if hasattr(data, 'volume'):
+                print(f"  Volume: {data.volume:,}")
+        except Exception as e:
+            print(f"  ⚠ Could not fetch fast info: {type(e).__name__}: {e}")
+        
+        # Try to get recommendations
+        try:
+            print("  Attempting to fetch recommendations...")
+            recommendations = ticker.recommendations
+            if recommendations is not None and len(recommendations) > 0:
+                print(f"  ✓ Recommendations retrieved: {type(recommendations)}")
+                print(f"  Number of recommendations: {len(recommendations)}")
+                print(f"  Latest recommendation: {recommendations.iloc[-1] if hasattr(recommendations, 'iloc') else recommendations[-1]}")
+            else:
+                print(f"  ⚠ No recommendations available")
+        except Exception as e:
+            print(f"  ⚠ Could not fetch recommendations: {type(e).__name__}: {e}")
+        
+        # Try to get financials
+        try:
+            print("  Attempting to fetch financial statements...")
+            financials = ticker.financials
+            if financials is not None and len(financials) > 0:
+                print(f"  ✓ Financials retrieved: {type(financials)}")
+                print(f"  Financials shape: {financials.shape}")
+                print(f"  Columns (dates): {list(financials.columns)[:5]}")
+            else:
+                print(f"  ⚠ No financials available")
+        except Exception as e:
+            print(f"  ⚠ Could not fetch financials: {type(e).__name__}: {e}")
+        
+    except Exception as e:
+        print(f"  ⚠ Could not create ticker: {type(e).__name__}: {e}")
+    
+    # Test downloading multiple tickers at once
+    try:
+        print("  Testing multi-ticker download (AAPL, MSFT, GOOGL)...")
+        data = yf.download("AAPL MSFT GOOGL", period="1d", group_by='ticker')
+        print(f"  ✓ Multi-ticker data retrieved: {type(data)}")
+        if hasattr(data, 'shape'):
+            print(f"  Data shape: {data.shape}")
+            print(f"  Tickers retrieved: {list(data.columns.levels[0]) if hasattr(data.columns, 'levels') else 'N/A'}")
+    except Exception as e:
+        print(f"  ⚠ Could not download multi-ticker data: {type(e).__name__}: {e}")
+    
+except Exception as e:
+    print(f"✗ yfinance failed: {type(e).__name__}: {e}")
+
+# ============================================================================
 # Summary
 # ============================================================================
 print("\n" + "=" * 70)
@@ -261,4 +360,5 @@ print("\nNote: API keys are loaded from .env file.")
 print("Make sure your .env file contains:")
 print("  - FRED_API_KEY=your_fred_api_key")
 print("  - FINNHUB_API_KEY=your_finnhub_api_key")
+print("\nNote: yfinance does not require an API key (uses Yahoo Finance public API).")
 print("\nAll libraries have been tested for basic functionality and method access.")
