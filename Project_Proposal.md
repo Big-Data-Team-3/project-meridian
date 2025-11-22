@@ -560,7 +560,7 @@ def transform_fred_data(raw_data):
 **Week 3: Frontend, Deployment & Testing (60 hours)**
 
 **M5: Front-end Application (Days 11-12, 25 hours)**
-- Streamlit dashboard
+- React/Next JS (Typescript) Frontend and Dashboards
 - Query interface
 - Visualization components
 - Integration with FastAPI backend
