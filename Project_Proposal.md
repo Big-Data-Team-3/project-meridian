@@ -48,7 +48,7 @@ Build an autonomous, agent-driven platform that:
 - OpenAI AgentKit-based multi-agent system
 - Vector database for semantic search
 - REST API (FastAPI)
-- Streamlit dashboard
+- React/Next JS Dashboard
 - Cloud deployment (GCP)
 - Comprehensive testing & evaluation
 
