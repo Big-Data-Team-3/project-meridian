@@ -48,7 +48,7 @@ Build an autonomous, agent-driven platform that:
 - OpenAI AgentKit-based multi-agent system
 - Vector database for semantic search
 - REST API (FastAPI)
-- React/Next JS Dashboard
+- Streamlit/Next JS Dashboard 
 - Cloud deployment (GCP)
 - Comprehensive testing & evaluation
 
@@ -560,7 +560,7 @@ def transform_fred_data(raw_data):
 **Week 3: Frontend, Deployment & Testing (60 hours)**
 
 **M5: Front-end Application (Days 11-12, 25 hours)**
-- React/Next JS (Typescript) Frontend and Dashboards
+- Streamlit/Next JS (Typescript) Frontend and Dashboards
 - Query interface
 - Visualization components
 - Integration with FastAPI backend
