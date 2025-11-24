@@ -294,11 +294,6 @@ flowchart LR
   - `financial_data/` (PostgreSQL): Time-series data (prices, indicators)
   - `documents/` (PostgreSQL): SEC filings, news articles
 
-**Stream Processing:**
-- **Schedule:** Hourly for real-time sources (Finnhub quotes)
-- **Technology:** GCP Cloud Run (free tier: 1M requests/month)
-- **Format:** Real-time JSON → Append to GCS / Update PostgreSQL
-
 **Parallel Processing Strategy:**
 - **Multi-threading:** Concurrent API calls (rate-limit aware)
 - **Python Multiprocessing:** Local batch processing (no cloud compute costs)
@@ -436,21 +431,21 @@ def check_toxicity(text: str) -> bool:
 ### **5.7 Evaluations & Testing**
 
 **LLM Eval Framework:**
-- **Rubric-Based:** Accuracy, relevance, completeness (1-5 scale)
-- **Automated Graders:** Compare outputs against golden set
-- **Golden Set:** 50 curated Q&A pairs from financial domain (reduced from 100 for efficiency)
+- **Rubric-Based:** Accuracy, relevance, completeness (1-5 scale)[AGENT TESTS]
+- **Automated Graders:** Compare outputs against golden set (LLM as a Judge)[AGENT TESTS]
+- **Golden Set:** 100 curated Q&A pairs from financial domain [OUTPUT TESTS]
 - **Metrics:** BLEU, ROUGE, semantic similarity (cosine similarity of embeddings)
 
 **Unit Tests:**
 - ETL functions (data cleaning, transformation)
 - API endpoints (FastAPI routes)
 - LLM wrappers (prompt formatting, response parsing)
-- Pipeline logic (agent coordination)
+- Pipeline logic (agent coordination)[DATA QUALITY TESTS]
 
 **Integration Tests:**
-- End-to-end pipeline (ingestion → processing → storage)
-- Agent workflows (supervisor → research → summarize)
-- API → Database → Vector DB interactions
+- End-to-end pipeline (ingestion → processing → storage) [DATA QUALITY TESTS]
+- Agent workflows (supervisor → research → summarize)[AGENT TESTS]
+- API → Database → Vector DB interactions 
 
 **CI Pipeline (GitHub Actions):**
 ```yaml
@@ -468,39 +463,12 @@ jobs:
 ```
 
 **Metrics:**
-- **Accuracy:** % of correct answers (vs golden set)
+- **Accuracy:** % of correct answers (vs golden set), for output and agent evaluations.
+- **Completness** of data pipeline outputs.
+- **Freshness and Consistency** of data pipeline outputs.
 - **Latency:** P50, P95, P99 response times
-- **Cost:** Tokens consumed, $ per query
+- **Cost:** Tokens consumed, $ per query, cache hit rate
 - **Throughput:** Queries per second
-
-### **5.8 Proof of Concept (POC)**
-
-**Preliminary EDA:**
-- ✅ Data source validation (test_data_sources.py)
-- ✅ Sample data extraction from all 5 sources
-- ✅ Data quality assessment (missing values, formats)
-
-**Example Transformations:**
-```python
-# Sample ETL transformation
-def transform_fred_data(raw_data):
-    df = pd.DataFrame(raw_data)
-    df['date'] = pd.to_datetime(df['date'])
-    df = df.set_index('date')
-    return df
-```
-
-**First LLM Experiments:**
-- Tested GPT-3.5-turbo on sample SEC filing summarization
-- Tested text-embedding-3-small on financial documents
-- Validated RAG pipeline with small dataset
-
-**Small Architecture Demo:**
-- Local FastAPI server with mock data
-- Simple agent workflow (research → summarize)
-- Streamlit dashboard with sample visualizations
-
-**Screenshots/Code Snippets:** (To be added in final proposal)
 
 ---
 
