@@ -25,7 +25,7 @@ WE ATTEST THAT WE HAVEN'T USED ANY OTHER STUDENTS' WORK IN OUR ASSIGNMENT AND AB
 
 ### **2.1 Background**
 
-Financial analysis requires aggregating data from multiple sources (market data, macroeconomic indicators, SEC filings, news, sentiment). Current approaches are fragmented, manual, and don't scale. Analysts spend significant time on data collection and basic analysis instead of insights.
+Financial analysis requires aggregating data from multiple sources (market data, macroeconomic indicators, SEC filings, news). Current approaches are fragmented, manual, and don't scale. Analysts spend significant time on data collection and basic analysis instead of insights.
 
 **Challenges:**
 - Data fragmentation across 10+ sources
@@ -41,16 +41,16 @@ Build an autonomous, agent-driven platform that:
 - **Big Data Engineering:** Ingest and process 100GB+ of financial data from multiple sources
 - **LLM Integration:** Use OpenAI models (GPT-3.5-turbo, GPT-4, embeddings) for analysis, summarization, and reasoning
 - **Cloud-Native Architecture:** Deploy on GCP with scalable microservices
-- **User-Facing Application:** Streamlit dashboard for queries and insights
+- **User-Facing Application:** Next JS dashboard for queries and insights, chat interface and dashboards
 
 **Deliverables:**
-- Multi-source ETL pipeline (batch + streaming)
+- Multi-source ETL pipeline (batch focused for MVP)
 - OpenAI AgentKit-based multi-agent system
-- Vector database for semantic search
+- Vector database for semantic search(Chroma)
 - REST API (FastAPI)
-- Streamlit/Next JS Dashboard 
+- Next JS Dashboard 
 - Cloud deployment (GCP)
-- Comprehensive testing & evaluation
+- Comprehensive testing & evaluation 
 
 ---
 
@@ -59,8 +59,9 @@ Build an autonomous, agent-driven platform that:
 ### **3.1 Scope**
 
 **In-Scope:**
-- **Data Sources:** GDELT, FRED, SEC EDGAR, Finnhub, yfinance (validated- test_data_sources.py)
-- **ETL Pipelines:** Batch (daily) + near-real-time (hourly) ingestion
+- **Data Sources:** FRED, SEC EDGAR, yfinance (validated- test_data_sources.py)
+- **Financial Instruments**: Stocks, ETFs, Indices
+- **ETL Pipelines:** Batch (daily) ingestion, with majorly structured data from the above data sources, unstructured data (documents) are processed and indexed for semantic search.
 - **LLM Components:** OpenAI GPT-3.5-turbo (primary), GPT-4 (complex queries), text-embedding-3-small (cost-effective embeddings)
 - **Cloud Infrastructure:** GCP (Cloud Storage, Compute Engine, Cloud SQL, Cloud Run)
 - **Guardrails & HITL:** Input validation, output moderation, human approval for high-stakes decisions
@@ -68,7 +69,7 @@ Build an autonomous, agent-driven platform that:
 
 **Out-of-Scope:**
 - Trading execution (analysis only)
-- Real-time trading signals
+- Real-time trading signals, and real-time analysis using streaming ETL Pipelines.
 
 
 ### **3.2 Stakeholders / End Users**
@@ -94,7 +95,7 @@ Build an autonomous, agent-driven platform that:
 - **Scalable Pipelines:** Automated ETL with cloud-native architecture
 - **LLM-Assisted Analysis:** Automated summarization, sentiment analysis, trend detection
 - **Automated Decision-Making:** Agents autonomously retrieve, analyze, and synthesize insights
-- **Real-Time Insights:** Near-real-time processing of market events and news
+- **Insights:** Deep Research and processing of market events and news
 
 ---
 
@@ -104,40 +105,29 @@ Build an autonomous, agent-driven platform that:
 
 **Validated Sources (from test_data_sources.py):**
 
-1. **GDELT** (`gdelt==0.1.14`)
-   - Global events, language, tone
-   - Volume: ~500MB/day, ~150GB/year
-   - Justification: Geopolitical context for market movements
-   - Cost: Free
-
-2. **FRED API** (`fredapi==0.5.2`)
+1. **FRED API** (`fredapi==0.5.2`)
    - Federal Reserve economic data (GDP, inflation, rates)
    - Volume: ~50MB/day, ~18GB/year
    - Justification: Macroeconomic indicators
    - Cost: Free (API key required, free registration)
 
-3. **SEC EDGAR** (3 libraries: `sec-edgar-api==1.1.0`, `secedgar==0.6.0`, `sec-edgar-downloader==5.0.3`)
+2. **SEC EDGAR** (3 libraries: `sec-edgar-api==1.1.0`, `secedgar==0.6.0`, `sec-edgar-downloader==5.0.3`)
    - Company filings (10-K, 10-Q, 8-K)
    - Volume: ~200MB/day, ~73GB/year
    - Justification: Fundamental analysis
    - Cost: Free
 
-4. **Finnhub** (`finnhub-python==2.4.25`)
-   - Real-time quotes, company profiles, financials
-   - Volume: ~100MB/day, ~36GB/year
-   - Justification: Market data
-   - Cost: Free tier available (60 calls/minute)
-
-5. **yfinance** (`yfinance==0.2.66`)
+3. **yfinance** (`yfinance==0.2.66`)
    - Historical prices, financials, recommendations
    - Volume: ~50MB/day, ~18GB/year
    - Justification: Free, reliable market data
    - Cost: Free
 
-**Total Expected Volume:** ~300GB/year 
+**Total Expected Volume:** ~110GB/year 
 
 **Additional Sources (Future):**
-- NewsAPI (free tier: 100 requests/day)
+- Finnhub (free tier: 60 calls/minute)
+- GDELT (Library for real-time events)
 - AlphaVantage (free tier: 5 calls/minute)
 
 ### **5.2 Technology Stack**
@@ -176,8 +166,8 @@ Build an autonomous, agent-driven platform that:
 - **Rationale:** Free for public repos, integrates with GitHub
 
 **Frontend:**
-- **Streamlit:** Interactive dashboard (FREE - open-source)
-- **Rationale:** Fast development, Python-native, good for data apps
+- **Next JS Typescript:** Interactive, highly customizable dashboard (FREE - open-source)
+- **Rationale:** The project requires that level of customizability only with a standardized framework
 
 **Agent Framework:**
 - **OpenAI AgentKit:** Multi-agent orchestration (FREE - open-source toolkit)
@@ -190,16 +180,13 @@ Build an autonomous, agent-driven platform that:
 ```mermaid
 graph TB
     subgraph "Data Sources"
-        DS1[GDELT API<br/>Free]
         DS2[FRED API<br/>Free]
         DS3[SEC EDGAR<br/>Free]
-        DS4[Finnhub<br/>Free Tier]
         DS5[yfinance<br/>Free]
     end
     
     subgraph "Ingestion Layer"
-        IL1[Batch Scheduler<br/>Airflow Local]
-        IL2[Real-time Ingestion<br/>Cloud Run]
+        IL1[Batch Scheduler<br/>Airflow Hosted]
     end
     
     subgraph "Storage Layer"
@@ -227,13 +214,11 @@ graph TB
     end
     
     subgraph "Frontend"
-        UI[Streamlit<br/>Dashboard]
+        UI[Next Typescript<br/>Dashboard]
     end
     
-    DS1 --> IL1
     DS2 --> IL1
     DS3 --> IL1
-    DS4 --> IL2
     DS5 --> IL1
     
     IL1 --> GCS
@@ -301,7 +286,7 @@ flowchart LR
 
 **Batch Processing:**
 - **Schedule:** Daily at 2 AM EST (after market close)
-- **Sources:** GDELT, FRED, SEC EDGAR, yfinance
+- **Sources:** FRED, SEC EDGAR, yfinance
 - **Format:** JSON (APIs) → Parquet (storage)
 - **Storage Schema:**
   - `raw_data/` (GCS): Original API responses
@@ -321,7 +306,6 @@ flowchart LR
 
 **Feature Engineering:**
 - Technical indicators 
-- Sentiment scores (from GDELT tone)
 - Macro-economic features (GDP growth, inflation rates)
 - Time-based features (day of week, month, quarter)
 
