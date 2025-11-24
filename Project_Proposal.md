@@ -568,7 +568,7 @@ jobs:
 **Divyansh (66.6 hours):**
 - **Cloud Architect:** GCP setup, containerization, deployment
 - **API Development:** FastAPI endpoints, integration
-- **Frontend:** Streamlit dashboard, visualization
+- **Frontend:** Next JS dashboard, visualization
 - **QA/Test Engineer:** Unit tests, integration tests, CI/CD
 
 **Shared Responsibilities:**
@@ -583,7 +583,7 @@ jobs:
 
 ### **8.1 Potential Risks**
 
-1. **Scraping Failures / API Rate Limits**
+1. ** API Rate Limits**
    - Risk: APIs may rate-limit or block requests
    - Impact: High (blocks data ingestion)
 
@@ -761,17 +761,14 @@ This project demonstrates production-grade big data engineering, LLM integration
 ## **12. References**
 
 **Data Sources:**
-- GDELT: https://www.gdeltproject.org/
 - FRED API: https://fred.stlouisfed.org/docs/api/
 - SEC EDGAR: https://www.sec.gov/edgar.shtml
-- Finnhub: https://finnhub.io/
 - yfinance: https://github.com/ranaroussi/yfinance
 
 **Technologies:**
 - OpenAI AgentKit: https://openai.com/index/introducing-agentkit/
 - OpenAI API Pricing: https://openai.com/api/pricing/
 - FastAPI: https://fastapi.tiangolo.com/
-- Streamlit: https://streamlit.io/
 - Apache Airflow: https://airflow.apache.org/
 - Chroma: https://www.trychroma.com/
 - GCP Free Tier: https://cloud.google.com/free
