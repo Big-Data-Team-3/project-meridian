@@ -121,7 +121,6 @@ Build an autonomous, agent-driven platform that:
    - Repos: 
       - https://github.com/jadchaar/sec-edgar-api
       - https://github.com/sec-edgar/sec-edgar
-      - https://github.com/dylanized/sec-edgar-downloader
    - Documentation: https://www.sec.gov/edgar/sec-api-documentation, https://www.sec.gov/about/developer-resources, https://www.sec.gov/edgar.shtml
  
 3. **yfinance** (`yfinance==0.2.66`)
