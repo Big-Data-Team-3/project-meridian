@@ -110,18 +110,28 @@ Build an autonomous, agent-driven platform that:
    - Volume: ~50MB/day, ~18GB/year
    - Justification: Macroeconomic indicators
    - Cost: Free (API key required, free registration)
+   - Repo: https://github.com/mortada/fredapi
+   - Documentation: https://fred.stlouisfed.org/docs/api/
 
 2. **SEC EDGAR** (3 libraries: `sec-edgar-api==1.1.0`, `secedgar==0.6.0`, `sec-edgar-downloader==5.0.3`)
    - Company filings (10-K, 10-Q, 8-K)
    - Volume: ~200MB/day, ~73GB/year
    - Justification: Fundamental analysis
    - Cost: Free
-
+   - Repos: 
+      - https://github.com/jadchaar/sec-edgar-api
+      - https://github.com/sec-edgar/sec-edgar
+      - https://github.com/dylanized/sec-edgar-downloader
+   - Documentation: https://www.sec.gov/edgar/sec-api-documentation, https://www.sec.gov/about/developer-resources, https://www.sec.gov/edgar.shtml
+ 
 3. **yfinance** (`yfinance==0.2.66`)
    - Historical prices, financials, recommendations
    - Volume: ~50MB/day, ~18GB/year
    - Justification: Free, reliable market data
    - Cost: Free
+   - Repo: https://github.com/ranaroussi/yfinance
+   - PyPi: https://pypi.org/project/yfinance/
+
 
 **Total Expected Volume:** ~110GB/year 
 
