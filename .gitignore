@@ -1,4 +1,7 @@
 .venv
+meridian_env
+
+data_analysis_results
 .env
 __pycache__
 .pytest_cache
