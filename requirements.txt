@@ -6,3 +6,6 @@ sec-edgar-downloader==5.0.3
 finnhub-python==2.4.25
 python-dotenv==1.2.1
 yfinance==0.2.66
+
+# Pydantic
+pydantic==2.12.5
