@@ -446,3 +446,179 @@ After running the setup script successfully:
 - **Storage**: Cloud Storage has free tier (5GB)
 
 The setup is designed to minimize costs while providing all necessary infrastructure for the Meridian project.
+
+---
+
+# GCP Bucket Setup Script - Command Reference
+
+This section explains the exact commands used in [`scripts/gcp_bucket_setup.sh`](../scripts/gcp_bucket_setup.sh) for creating and initializing the required Cloud Storage (GCS) bucket for the project.
+
+---
+
+## 1. Extract Project ID from `.env`
+
+```bash
+PROJECT_ID=$(grep "^PROJECT_ID=" .env | cut -d '=' -f 2 | tr -d '"' | tr -d "'" | tr -d '[' | tr -d ']' | xargs)
+```
+- **Purpose:** Extracts the value of `PROJECT_ID` from the `.env` file, removing quotes and whitespace.
+- **Note:** Many GCP operations require the project ID.
+
+---
+
+## 2. Bucket Creation
+
+```bash
+if ! gcloud storage buckets list --project=$PROJECT_ID | grep -q "meridian-raw-data"; then
+    gcloud storage buckets create gs://meridian-raw-data --location=us-central1 --project=$PROJECT_ID
+fi
+```
+- **Purpose:** Checks if the bucket `meridian-raw-data` already exists; if not, creates it in `us-central1`.
+- **Command Details:**
+    - `gcloud storage buckets list`: Lists all buckets in the project.
+    - `gcloud storage buckets create`: Creates a new GCS bucket.
+
+**Alternative (legacy) check and creation:**
+
+```bash
+if ! gsutil ls -b gs://meridian-raw-data &>/dev/null; then
+    gsutil mb -p $PROJECT_ID -c standard -l us-central1 gs://meridian-raw-data
+fi
+```
+- **Purpose:** Backward-compatible bucket existence check and creation using `gsutil`.
+
+---
+
+## 3. Creating Folder Structure (Null Markers)
+
+Cloud Storage does **not** support traditional folders; "folders" are represented by object prefixes. 
+To make them appear in UIs and tools, **null marker files** (zero-byte objects) are created.
+
+```bash
+gcloud storage cp /dev/null gs://meridian-raw-data/raw_data/ --project=$PROJECT_ID
+gcloud storage cp /dev/null gs://meridian-raw-data/raw_data/fred/ --project=$PROJECT_ID
+gcloud storage cp /dev/null gs://meridian-raw-data/raw_data/sec/ --project=$PROJECT_ID
+gcloud storage cp /dev/null gs://meridian-raw-data/raw_data/yfinance/ --project=$PROJECT_ID
+```
+- **Purpose:** Creates visible "folders" in the bucket for organizing raw data by upstream source.
+- **How it works:** Copies an empty file (`/dev/null`) into each desired prefix. This creates a zero-byte object acting as a folder marker.
+
+---
+
+## 4. Script Workflow Overview
+
+1. **Read Project ID** from `.env`
+2. **Create GCS Bucket** `meridian-raw-data` if it doesn't already exist (using both `gcloud` and `gsutil` for compatibility)
+3. **Create Marker Objects** for `raw_data/` and its subfolders to establish GCS folder structure
+
+---
+
+## 5. Error Handling
+
+- If bucket creation fails, the script prints an error and exits with a non-zero code.
+- If folders already exist, script prints a warning but continues (idempotent).
+
+---
+
+## Reference
+
+- [Null Marker Files Documentation](null_marker_files.md)
+- [GCP gcloud storage Reference](https://cloud.google.com/sdk/gcloud/reference/storage/)
+- [GCP gsutil Reference](https://cloud.google.com/storage/docs/gsutil)
+
+---
+
+# Meridian GCP Client (@client.py) — Function Documentation & Rationale
+
+Below is an overview of the `gcp_client/client.py` module, outlining function-level documentation, dependencies, provided features, and a summary of the main test run. This is meant to help developers use or audit the provided GCS client code.
+
+---
+
+## Dependencies
+
+The following dependencies are used for clear reasons:
+
+- **os**: For file path operations, existence checks, MIME detection, and file removal.
+- **pathlib.Path**: Convenience for file path manipulations (where used).
+- **typing (Optional, BinaryIO)**: Type hints for method parameters and return types.
+- **google.cloud.storage**: *Core dependency* for GCS bucket/file operations.
+- **google.oauth2.service_account**: Loads GCP service account credentials when explicitly supplied.
+- **dotenv.load_dotenv**: Loads `.env` config variables (like `PROJECT_ID`) for seamless local/CI/CD testability.
+
+*All external dependencies are standard for Python GCP development and are justified by their role in secure credential management and reliable bucket/file operations.*
+
+---
+
+## Features and Function-level Documentation
+
+**Class: `GCSClient`**
+> A wrapper for Google Cloud Storage operations, supporting file upload/download, byte-based transfer, file listing, marker creation, and deletion, with convenience helpers for setup via environment or explicit arguments.
+
+- **`__init__`**  
+  - Initializes the client with supplied or environment-derived Project ID and credentials path.
+  - Loads credentials using `service_account` or falls back to Application Default Credentials (ADC).
+
+- **`upload_file(bucket_name, source_file_path, destination_blob_name, content_type=None)`**  
+  - Uploads a local file to GCS.
+  - Auto-detects MIME type if not given (using `mimetypes`).
+  - Returns the public URL; makes the file public after upload.
+  - Raises `FileNotFoundError` if the local file doesn't exist.
+
+- **`upload_bytes(bucket_name, data, destination_blob_name, content_type='application/octet-stream')`**  
+  - Uploads bytes data directly to GCS.
+  - Sets content type.
+  - Returns the resulting public URL.
+
+- **`download_file(bucket_name, source_blob_name, destination_file_path)`**  
+  - Downloads a GCS file to the provided local path.
+  - Creates the destination directory if it doesn’t exist.
+  - Returns the local path.
+  - Raises Exception if download fails.
+
+- **`download_bytes(bucket_name, source_blob_name)`**  
+  - Downloads a file from GCS, returning file content as bytes.
+
+- **`list_files(bucket_name, prefix=None, max_results=None)`**  
+  - Lists objects in a bucket, optionally filtered by prefix and/or limited in number.
+
+- **`delete_file(bucket_name, blob_name)`**  
+  - Deletes a given object/blob from the bucket.
+
+- **`file_exists(bucket_name, blob_name)`**  
+  - Verifies existence of a named object in the bucket.
+
+- **`_get_content_type(file_path)`** *(internal)*  
+  - Determines the file's MIME type using extension.
+
+- **Convenience Functions**  
+  - `create_gcs_client`: Instantiates `GCSClient` with optional Project ID and credentials.
+  - `upload_file_to_gcs`, `download_file_from_gcs`, `delete_file_from_gcs`: Simplified helpers for common tasks, abstracting away explicit client instantiation.
+
+---
+
+## `__main__` Test Run Example
+
+The example block at the bottom serves as both a test and a sample usage pattern:
+
+- Generates a "test.txt" file with content.
+- **Uploads** this file to the configured GCS bucket.
+- **Downloads** the same file back (overwriting or creating locally).
+- **Deletes** the file from the bucket.
+- **Cleans up** by deleting the local "test.txt", confirming removal.
+- Prints status messages at each step.
+
+This end-to-end workflow demonstrates that:
+- Credentials/env setup is read correctly
+- Bucket operations function (upload/download/delete)
+- Convenience helpers simplify typical GCS workflows
+- Error handling is included at each step
+
+---
+
+## When to Use
+
+- Need simple Python access to GCS buckets, files, or pseudo-folders for scripts, pipelines, or ML workloads.
+- Want a clear, reusable client abstraction; or need convenience wrappers for CI/CD/test/dev scripts.
+- Use of `.env` for configuration enables easy local and deployment setup.
+
+---
+
