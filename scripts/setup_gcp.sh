@@ -76,18 +76,18 @@ else
     fi
 fi
 
-# Add IAM policy binding for Compute Engine Service Account to Cloud SQL - Client access (for PostgreSQL)
+# Add IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL)
 if gcloud projects get-iam-policy $PROJECT_ID --format=yaml | grep -q "compute-engine-sa@$PROJECT_ID.iam.gserviceaccount.com"; then
-    echo "✅ IAM policy binding for Compute Engine Service Account to Cloud SQL - Client access (for PostgreSQL) already exists"
+    echo "✅ IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL) already exists"
 else
-    echo "Adding IAM policy binding for Compute Engine Service Account to Cloud SQL - Client access (for PostgreSQL)..."
+    echo "Adding IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL)..."
     if gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:compute-engine-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/cloudsql.client"
+    --role="roles/cloudsql.admin"
     then
-        echo "✅ IAM policy binding for Compute Engine Service Account to Cloud SQL - Client access (for PostgreSQL) added"
+        echo "✅ IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL) added"
     else
-        echo "❌ ERROR: Failed to add IAM policy binding for Compute Engine Service Account to Cloud SQL - Client access (for PostgreSQL)"
+        echo "❌ ERROR: Failed to add IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL)"
         echo "   Please check your permissions and try again"
         exit 1
     fi
@@ -168,24 +168,24 @@ else
     fi
 fi
 
-# Cloud SQL - Client access
+# Cloud SQL - Admin access
 if gcloud projects get-iam-policy $PROJECT_ID --format=yaml | grep -q "cloud-run-sa@$PROJECT_ID.iam.gserviceaccount.com"; then
-    echo "✅ IAM policy binding for Cloud Run Service Account to Cloud SQL - Client access (for PostgreSQL) already exists"
+    echo "✅ IAM policy binding for Cloud Run Service Account to Cloud SQL - Admin access (for PostgreSQL) already exists"
 else
-    echo "Adding IAM policy binding for Cloud Run Service Account to Cloud SQL - Client access (for PostgreSQL)..."
+    echo "Adding IAM policy binding for Cloud Run Service Account to Cloud SQL - Admin access (for PostgreSQL)..."
     if gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:cloud-run-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/cloudsql.client"
+    --role="roles/cloudsql.admin"
     then
-        echo "✅ IAM policy binding for Cloud Run Service Account to Cloud SQL - Client access (for PostgreSQL) added"
+        echo "✅ IAM policy binding for Cloud Run Service Account to Cloud SQL - Admin access (for PostgreSQL) added"
     else
-        echo "❌ ERROR: Failed to add IAM policy binding for Cloud Run Service Account to Cloud SQL - Client access (for PostgreSQL)"
+        echo "❌ ERROR: Failed to add IAM policy binding for Cloud Run Service Account to Cloud SQL - Admin access (for PostgreSQL)"
         echo "   Please check your permissions and try again"
         exit 1
     fi
 fi
 
-echo "Cloud SQL - Client access added to the service account"
+echo "Cloud SQL - Admin access added to the service account"
 
 # Logging
 if gcloud projects get-iam-policy $PROJECT_ID --format=yaml | grep -q "cloud-run-sa@$PROJECT_ID.iam.gserviceaccount.com"; then
@@ -264,24 +264,24 @@ else
     fi
 fi
 
-# Compute Engine - Create/update VMs (if deploying to Compute Engine)
+# Compute Engine - Admin access (full compute control)
 if gcloud projects get-iam-policy $PROJECT_ID --format=yaml | grep -q "cloud-run-sa@$PROJECT_ID.iam.gserviceaccount.com"; then
-    echo "✅ IAM policy binding for Cloud Run Service Account to Compute Engine - Create/update VMs already exists"
+    echo "✅ IAM policy binding for Cloud Build Service Account to Compute Engine - Admin access already exists"
 else
-    echo "Adding IAM policy binding for Cloud Run Service Account to Compute Engine - Create/update VMs..."
+    echo "Adding IAM policy binding for Cloud Build Service Account to Compute Engine - Admin access..."
     if gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:$PROJECT_NUMBER@cloudbuild.gserviceaccount.com" \
-    --role="roles/compute.instanceAdmin.v1"
+    --role="roles/compute.admin"
     then
-        echo "✅ IAM policy binding for Cloud Run Service Account to Compute Engine - Create/update VMs added"
+        echo "✅ IAM policy binding for Cloud Build Service Account to Compute Engine - Admin access added"
     else
-        echo "❌ ERROR: Failed to add IAM policy binding for Cloud Run Service Account to Compute Engine - Create/update VMs"
+        echo "❌ ERROR: Failed to add IAM policy binding for Cloud Build Service Account to Compute Engine - Admin access"
         echo "   Please check your permissions and try again"
         exit 1
     fi
 fi
 
-echo "Compute Engine - Create/update VMs added to the service account"
+echo "Compute Engine - Admin access added to the service account"
 
 # Airflow Service Account
 if gcloud iam service-accounts describe airflow-sa@$PROJECT_ID.iam.gserviceaccount.com &>/dev/null; then

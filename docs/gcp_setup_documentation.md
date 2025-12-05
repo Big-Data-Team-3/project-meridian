@@ -230,20 +230,20 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 - `--member`: Service account email
 - `--role="roles/storage.objectAdmin"`: Storage Object Admin role
 
-### Cloud SQL Client Access
+### Cloud SQL Admin Access
 
 ```bash
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:compute-engine-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/cloudsql.client"
+    --role="roles/cloudsql.admin"
 ```
 
-**Purpose:** Allows connection to Cloud SQL databases.
+**Purpose:** Grants full administrative access to Cloud SQL databases (create, modify, delete instances).
 
 **Parameters:**
 - `$PROJECT_ID`: Target project
 - `--member`: Service account email
-- `--role="roles/cloudsql.client"`: Cloud SQL Client role
+- `--role="roles/cloudsql.admin"`: Cloud SQL Admin role
 
 ### Logging Permissions
 
@@ -319,20 +319,20 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 - `--member`: Cloud Build service account
 - `--role="roles/run.admin"`: Cloud Run Admin role
 
-### Compute Engine Deployment Access
+### Compute Engine Admin Access
 
 ```bash
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:$PROJECT_NUMBER@cloudbuild.gserviceaccount.com" \
-    --role="roles/compute.instanceAdmin.v1"
+    --role="roles/compute.admin"
 ```
 
-**Purpose:** Allows Cloud Build to create/update Compute Engine VMs.
+**Purpose:** Grants full administrative access to Compute Engine resources.
 
 **Parameters:**
 - `$PROJECT_ID`: Target project
 - `--member`: Cloud Build service account
-- `--role="roles/compute.instanceAdmin.v1"`: Compute Instance Admin role
+- `--role="roles/compute.admin"`: Compute Admin role
 
 ## 6. Service Account Key Creation
 
@@ -381,19 +381,19 @@ The setup script creates the following service accounts:
 
 ### Compute Engine Service Account Roles
 - `roles/storage.objectAdmin`: Read/write Cloud Storage objects
-- `roles/cloudsql.client`: Connect to Cloud SQL databases
+- `roles/cloudsql.admin`: Full administrative access to Cloud SQL databases
 - `roles/logging.logWriter`: Write logs to Cloud Logging
 - `roles/monitoring.metricWriter`: Write metrics to Cloud Monitoring
 
 ### Cloud Run Service Account Roles
 - `roles/storage.objectAdmin`: Read/write Cloud Storage objects
-- `roles/cloudsql.client`: Connect to Cloud SQL databases
+- `roles/cloudsql.admin`: Full administrative access to Cloud SQL databases
 - `roles/logging.logWriter`: Write logs to Cloud Logging
 
 ### Cloud Build Service Account Roles
 - `roles/storage.admin`: Push images to Container Registry
 - `roles/run.admin`: Deploy to Cloud Run
-- `roles/compute.instanceAdmin.v1`: Create/update Compute Engine VMs
+- `roles/compute.admin`: Full administrative access to Compute Engine
 
 ## Security Notes
 
