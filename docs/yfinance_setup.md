@@ -194,3 +194,79 @@ This script compiles, standardizes, and saves instrument "source" identifiers fo
 Both scripts assume you have the required dependencies installed (`pandas`, `requests`, `dotenv`, etc.) and necessary directories (`data/yfinance`, etc.) exist or will be created as needed. They are meant to be rerun regularly to keep your reference and ticker universes fresh, supporting robust and up-to-date financial data pipelines.
 
 
+---
+
+## Data Available from yfinance — by Instrument Type
+
+### **1. Stocks**
+From yfinance, you can retrieve rich data for publicly traded equities/tickers, such as:
+- **Historical Prices:** Open, high, low, close, adjusted close, and volume (daily, weekly, monthly).
+- **Intraday Data:** Recent minute-level price and volume data (limited to last ~7 days).
+- **Dividends:** Payment history, ex-dividend dates, and declared dividends.
+- **Splits:** Stock split history.
+- **Corporate Actions:** Mergers, acquisitions, spinoffs, etc.
+- **Basic Profile:** Company name, exchange, sector, industry, country.
+- **Financials:** Quarterly and annual balance sheet, income statement, cash flow.
+- **Earnings:** Dates and results (EPS, revenue), future earnings calendar.
+- **Sustainability:** ESG and risk scores (if available).
+- **Analyst Recommendations:** Ratings, price targets (if available).
+- **Institutional Holders:** Who owns the stock, top holders (if available).
+- **Calendar Events:** Upcoming corporate dates (e.g., earnings, splits, meetings).
+
+---
+
+### **2. Exchanges (US: NYSE, NASDAQ, ASE, ARCA)**
+yfinance **does not provide direct exchange-level data (such as exchange indices, trading hours, or market-wide statistics)**.  
+However, you can:
+- **Identify the exchange** for individual tickers (`.info["exchange"]` or `.fast_info["exchange"]`)
+- **Filter/Slice securities by exchange:** i.e., select all stocks/ETFs listed on NYSE, NASDAQ, AMEX (ASE), ARCA, given a comprehensive universe.
+- **Access listings/constituents for these exchanges** if you provide the list of tickers (often assembled from third-party sources).
+- **Supported Exchanges:**  
+  - New York Stock Exchange (NYSE)
+  - NASDAQ Stock Market (NASDAQ)
+  - NYSE American/AMEX (ASE)
+  - NYSE Arca (ARCA)
+  (But yfinance does not provide official full lists for these directly.)
+
+---
+
+### **3. ETFs**
+For Exchange Traded Funds (ETFs), yfinance provides:
+- **Historical Prices:** OHLCV and adjusted prices.
+- **Holdings:** Top constituent holdings (for some ETFs; not guaranteed complete).
+- **Profile:** Fund summary, category, underlying index, assets under management.
+- **Distributions:** Dividend schedule, yield, recent payouts.
+- **NAV Info:** Net asset value (sometimes approximate if not disclosed).
+- **Expense Ratios, Fees:** Basic fund fee details (if provided by Yahoo).
+- **Sustainability:** ESR/ESG risk and ratings (if available).
+
+---
+
+### **4. Indexes**
+yfinance supports a selection of **major financial indexes** using their Yahoo symbol (typically starting with a `^`). Example:  
+- `^GSPC` — S&P 500  
+- `^DJI` — Dow Jones Industrial  
+- `^IXIC` — Nasdaq Composite  
+- `^VIX` — CBOE Volatility Index  
+- and many others globally.
+For indexes, you can typically get:
+- **Historical Prices:** OHLCV values (no market cap, fundamentals, or constituents).
+- **Basic Profile:** Name, underlying exchange.
+- *Note:* yfinance does **not** provide official constituent lists for indexes (e.g., the S&P 500 member symbols).
+
+---
+
+**Summary Table of Core Data Types by Instrument**
+| Instrument | Price History | Fundamentals | Holdings | Dividends | Profile | Constituents Available |
+|------------|--------------|--------------|----------|-----------|---------|-----------------------|
+| Stock      |   ✔️         |   ✔️         | ❌       |    ✔️     |   ✔️    |   ❌                  |
+| ETF        |   ✔️         |   Partial    |  Partial |    ✔️     |   ✔️    |   Partial (Holdings)  |
+| Index      |   ✔️         |   ❌         |   ❌     |    ❌     |   ✔️    |   ❌                  |
+| Exchange   |   ∼ (by members) | ❌      |   ❌     |    ❌     |   ✔️ (symbol) | ❌ (not directly)     |
+
+**Note:**  
+- Data completeness may vary by ticker and over time depending on Yahoo Finance coverage.
+- Official constituent or membership lists for exchanges and indexes must often be sourced externally (i.e., not directly via yfinance).
+
+---
+
