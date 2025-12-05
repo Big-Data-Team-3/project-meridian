@@ -35,11 +35,14 @@ def extract_daily_filings(date: date, user_agent: str = "SEC EDGAR Client (email
 # endregion Filing Retrieval
 
 if __name__ == "__main__":
+    print("=" * 70)
+    print("Starting SEC EDGAR client...")
+    print("-" * 70)
     print("Getting CIK mapping...")
-    cik_mapping = get_cik_mapping(CIKLimits(isCount=True, count=10))
+    cik_mapping = get_cik_mapping()
     print("Saving CIK mapping to cik_mapping.json...")
     save_cik_mapping(cik_mapping, "cik_mapping.json")
     print("CIK mapping saved to cik_mapping.json")
-    print("Getting daily filings for 2025-12-01...")
-    daily_filings = extract_daily_filings(date(2025, 12, 1))
-    print("Daily filings saved to data/daily_filings/2025-12-01")
+    print("-" * 70)
+    print("Completed SEC EDGAR client...")
+    print("=" * 70)
