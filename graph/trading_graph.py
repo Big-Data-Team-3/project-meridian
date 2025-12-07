@@ -12,10 +12,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from langgraph.prebuilt import ToolNode
 
-from agents import *
+from agents_module import *
 from default_config import DEFAULT_CONFIG
-from agents.utils.memory import FinancialSituationMemory
-from agents.utils.agent_states import (
+from agents_module.utils.memory import FinancialSituationMemory
+from agents_module.utils.agent_states import (
     AgentState,
     InvestDebateState,
     RiskDebateState,
@@ -23,7 +23,7 @@ from agents.utils.agent_states import (
 from dataflows.config import set_config
 
 # Import the new abstract tool methods from agent_utils
-from agents.utils.agent_utils import (
+from agents_module.utils.agent_utils import (
     get_stock_data,
     get_indicators,
     get_fundamentals,

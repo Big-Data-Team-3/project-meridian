@@ -43,3 +43,5 @@ rich
 questionary
 langchain_anthropic
 langchain-google-genai
+
+openai-agents==0.6.2

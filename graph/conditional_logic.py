@@ -1,6 +1,6 @@
 # TradingAgents/graph/conditional_logic.py
 
-from agents.utils.agent_states import AgentState
+from agents_module.utils.agent_states import AgentState
 
 
 class ConditionalLogic:

@@ -1,7 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import time
 import json
-from agents.utils.agent_utils import get_stock_data, get_indicators
+from agents_module.utils.agent_utils import get_stock_data, get_indicators
 from dataflows.config import get_config
 
 
