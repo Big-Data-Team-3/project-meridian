@@ -7,3 +7,5 @@ README.md
 .next
 .vercel
 *.md
+# Don't exclude meridian-frontend files
+!meridian-frontend/**

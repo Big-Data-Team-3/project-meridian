@@ -43,5 +43,9 @@ rich
 questionary
 langchain_anthropic
 langchain-google-genai
-
+# OpenAI Agents
 openai-agents==0.6.2
+
+# FastAPI
+fastapi
+uvicorn[standard]
