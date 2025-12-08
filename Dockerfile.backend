@@ -16,10 +16,11 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir \
     fastapi \
-    uvicorn[standard]
+    uvicorn[standard] \
+    httpx
+
 # Copy backend source code
 COPY meridian-backend/ ./meridian-backend/
-COPY default_config.py .
 
 # Set Python path
 ENV PYTHONPATH=/app

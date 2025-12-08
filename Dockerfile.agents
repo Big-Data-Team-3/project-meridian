@@ -1,0 +1,52 @@
+# Use Python 3.11 slim image
+FROM python:3.11-slim AS base
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+# RUN apt-get update && apt-get install -y \
+#     gcc \
+#     g++ \
+#     curl \
+#     && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy agent-related code from meridian-agents directory
+COPY meridian-agents/agents_module/ ./agents_module/
+COPY meridian-agents/graph/ ./graph/
+COPY meridian-agents/dataflows/ ./dataflows/
+COPY meridian-agents/default_config.py .
+
+# Copy client modules
+COPY gcp_client/ ./gcp_client/
+COPY sec-edgar-client/ ./sec-edgar-client/
+COPY yfinance_client/ ./yfinance_client/
+
+# Create necessary directories
+RUN mkdir -p dataflows/data_cache \
+    && mkdir -p eval_results \
+    && mkdir -p results
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Expose port for API
+EXPOSE 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)" || exit 1
+
+# Start the API server
+CMD ["python", "-m", "uvicorn", "agents_module.server:app", "--host", "0.0.0.0", "--port", "8001"]

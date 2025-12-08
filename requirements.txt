@@ -49,3 +49,4 @@ openai-agents==0.6.2
 # FastAPI
 fastapi
 uvicorn[standard]
+httpx
