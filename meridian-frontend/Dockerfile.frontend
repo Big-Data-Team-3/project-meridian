@@ -1,0 +1,71 @@
+# Use Node.js 20 Debian Slim (better compatibility with native binaries)
+FROM node:20-slim AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+# # Install required system dependencies for Tailwind CSS v4
+# RUN apt-get update && apt-get install -y \
+#     libc6 \
+#     libgcc-s1 \
+#     python3 \
+#     make \
+#     g++ \
+#     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json* ./
+RUN npm ci && npm cache clean --force
+
+# Rebuild the source code only when needed
+FROM base AS builder
+
+WORKDIR /app
+RUN npm install
+COPY . .
+
+# Environment variables
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Build the application
+RUN npm run build
+
+# Production image, copy all the files and run next
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Create a non-root user
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 nextjs --gid nodejs --create-home
+
+# Copy the public folder
+COPY --from=builder /app/public ./public
+
+# Set the correct permission for prerender cache
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+
+# Automatically leverage output traces to reduce image size
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Switch to non-root user
+USER nextjs
+
+# Expose the port the app runs on
+EXPOSE 3000
+
+# Set environment variables
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+
+# Start the application
+CMD ["node", "server.js"]

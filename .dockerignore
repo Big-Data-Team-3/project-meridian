@@ -1,0 +1,9 @@
+Dockerfile*
+.dockerignore
+.git
+.gitignore
+README.md
+.env*.local
+.next
+.vercel
+*.md
