@@ -1,0 +1,10 @@
+PostgreSQL is a powerful, open-source object-relational database management system (DBMS). It is known for its reliability, feature robustness, and performance. PostgreSQL supports advanced data types and standards-compliant SQL, making it suitable for a wide range of applications—from single-machine projects to large web services and data warehouses. It provides transactional integrity (ACID compliance), extensibility, and support for complex queries, triggers, and stored procedures. PostgreSQL is widely used in both development and production environments, valued for its active community and rich ecosystem of tools and extensions.
+### Why are we using PostgreSQL for our project?
+
+We selected PostgreSQL because it is a reliable and fully featured relational database system that offers excellent data integrity, advanced SQL capabilities, and strong community support. Its extensibility and support for modern data types make it an ideal choice for complex data models, transactional workloads, and analytics within our application. PostgreSQL's compliance with SQL standards and robust performance ensures our database needs are met both now and as the project scales.
+
+### How is PostgreSQL connected to Cloud SQL?
+
+Cloud SQL is a fully managed service provided by Google Cloud Platform that hosts relational databases in the cloud, including PostgreSQL. By using Cloud SQL with the PostgreSQL engine, we gain the benefits of PostgreSQL along with Google’s automated management features—such as backups, replication, scalability, and security—without the operational overhead of managing the underlying database servers ourselves.
+
+In our project, we use Cloud SQL to run our PostgreSQL database instances. This enables seamless integration with other Google Cloud resources and services, simplifies our deployment pipeline, and allows secure and reliable access to the database from both Google Cloud environments and approved external clients. All application code that accesses the database does so using standard PostgreSQL drivers, with connection details (like host, port, user, and password) specific to our Cloud SQL instance configuration.

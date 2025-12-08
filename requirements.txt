@@ -12,3 +12,41 @@ pydantic==2.12.5
 # GCP
 google-cloud-storage==2.18.2
 google-auth==2.29.0
+
+# Chroma
+chroma
+
+# Trading Agents
+typing-extensions
+langchain-openai
+langchain-experimental
+pandas
+yfinance
+praw
+feedparser
+stockstats
+eodhd
+langgraph
+chromadb
+setuptools
+backtrader
+akshare
+tushare
+finnhub-python
+parsel
+requests
+tqdm
+pytz
+redis
+chainlit
+rich
+questionary
+langchain_anthropic
+langchain-google-genai
+# OpenAI Agents
+openai-agents==0.6.2
+
+# FastAPI
+fastapi
+uvicorn[standard]
+httpx

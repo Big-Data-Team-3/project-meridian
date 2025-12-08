@@ -1,0 +1,11 @@
+Dockerfile*
+.dockerignore
+.git
+.gitignore
+README.md
+.env*.local
+.next
+.vercel
+*.md
+# Don't exclude meridian-frontend files
+!meridian-frontend/**
