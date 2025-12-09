@@ -11,6 +11,34 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Load environment variables from .env file if it exists
+if [ -f .env ]; then
+    echo -e "${YELLOW}Loading environment variables from .env file...${NC}"
+    export $(cat .env | grep -v '^#' | xargs)
+    echo -e "${GREEN}✓ Environment variables loaded${NC}\n"
+fi
+
+# Try to load Google Client ID and Secret from config file if not set
+if [ -z "$GOOGLE_CLIENT_ID" ] && [ -f "config/client_secret_apps.googleusercontent.com.json" ]; then
+    echo -e "${YELLOW}Extracting Google credentials from config file...${NC}"
+    GOOGLE_CLIENT_ID=$(grep -o '"client_id": "[^"]*' config/client_secret_apps.googleusercontent.com.json | cut -d'"' -f4)
+    GOOGLE_CLIENT_SECRET=$(grep -o '"client_secret": "[^"]*' config/client_secret_apps.googleusercontent.com.json | cut -d'"' -f4)
+    export GOOGLE_CLIENT_ID
+    export GOOGLE_CLIENT_SECRET
+    if [ -n "$GOOGLE_CLIENT_ID" ]; then
+        echo -e "${GREEN}✓ Found GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}${NC}"
+    fi
+    if [ -n "$GOOGLE_CLIENT_SECRET" ]; then
+        echo -e "${GREEN}✓ Found GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:0:10}...${NC}\n"
+    fi
+fi
+
+# Check if required variables are set
+if [ -z "$GOOGLE_CLIENT_ID" ]; then
+    echo -e "${YELLOW}⚠️  Warning: GOOGLE_CLIENT_ID is not set${NC}"
+    echo -e "${YELLOW}   Google Sign-In will not work. Set it in .env file or export it.${NC}\n"
+fi
+
 # Configuration
 FRONTEND_IMAGE="meridian-frontend:latest"
 BACKEND_IMAGE="meridian-backend:latest"
@@ -52,7 +80,10 @@ echo -e "${YELLOW}Step 2: Building Docker images...${NC}\n"
 
 # Build Frontend
 echo -e "${YELLOW}Building ${FRONTEND_IMAGE}...${NC}"
-if docker build -f Dockerfile.frontend -t ${FRONTEND_IMAGE} .; then
+if docker build -f Dockerfile.frontend \
+    --build-arg NEXT_PUBLIC_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID} \
+    --build-arg NEXT_PUBLIC_API_URL=${API_URL:-http://localhost:8000} \
+    -t ${FRONTEND_IMAGE} .; then
     echo -e "${GREEN}✓ ${FRONTEND_IMAGE} built successfully${NC}\n"
 else
     echo -e "${RED}✗ Failed to build ${FRONTEND_IMAGE}${NC}"
@@ -111,6 +142,7 @@ else
 fi
 
 # Run Frontend Service
+# Note: NEXT_PUBLIC_* vars are baked in at build time, but we can still pass them for runtime overrides
 echo -e "${YELLOW}Starting ${FRONTEND_CONTAINER} on port ${FRONTEND_PORT}...${NC}"
 if docker run -d \
     -p ${FRONTEND_PORT}:${FRONTEND_PORT} \

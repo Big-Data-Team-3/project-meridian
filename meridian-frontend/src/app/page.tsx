@@ -3,46 +3,24 @@
 import { useState, useEffect, type ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { Container } from '@/components/layout/Container';
+import { GoogleSignIn } from '@/components/auth/GoogleSignIn';
 
 export default function Home(): ReactElement {
   const router = useRouter();
-  const { isAuthenticated, isLoading: authLoading, login, register } = useAuth();
-  const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const { isAuthenticated, isLoading: authLoading, loginWithGoogle } = useAuth();
   const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated && !authLoading) {
+    // Redirect authenticated users to chat page
+    // Wait for auth loading to complete to avoid flickering
+    if (!authLoading && isAuthenticated) {
+      console.log('🔄 Home page: User authenticated, redirecting to chat');
       router.push('/chat');
     }
   }, [isAuthenticated, authLoading, router]);
-
-  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault();
-    setError('');
-    setIsSubmitting(true);
-
-    try {
-      if (isLogin) {
-        await login({ email, password });
-        router.push('/chat');
-      } else {
-        await register({ email, password, name: name || undefined });
-        router.push('/chat');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   if (authLoading) {
     return (
@@ -63,90 +41,57 @@ export default function Home(): ReactElement {
           <div className="text-center mb-8">
             <h1 className="text-3xl font-semibold text-text-primary mb-2">
               Meridian
-            </h1>
+          </h1>
             <p className="text-text-secondary">
               Financial Intelligence Platform
-            </p>
-          </div>
+          </p>
+        </div>
 
           <div className="bg-surface border border-border rounded-xl p-6 shadow-sm">
-            <div className="flex gap-2 mb-6">
-              <button
-                onClick={() => {
-                  setIsLogin(true);
-                  setError('');
-                }}
-                className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-                  isLogin
-                    ? 'bg-accent text-white'
-                    : 'text-text-secondary hover:bg-surface-hover'
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => {
-                  setIsLogin(false);
-                  setError('');
-                }}
-                className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-                  !isLogin
-                    ? 'bg-accent text-white'
-                    : 'text-text-secondary hover:bg-surface-hover'
-                }`}
-              >
-                Sign Up
-              </button>
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-semibold text-text-primary mb-2">
+                Sign in to continue
+              </h2>
+              <p className="text-sm text-text-secondary">
+                Use your Google account to access Meridian
+              </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {!isLogin && (
-                <Input
-                  label="Name (optional)"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name"
-                />
-              )}
-              <Input
-                label="Email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your.email@example.com"
-                required
-              />
-              <Input
-                label="Password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
+            {error && (
+              <div className="mb-4 text-error text-sm text-center" role="alert">
+                {error}
+              </div>
+            )}
 
-              {error && (
-                <div className="text-error text-sm" role="alert">
-                  {error}
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                variant="primary"
-                size="lg"
-                className="w-full"
-                disabled={isSubmitting}
-              >
-                {isSubmitting
-                  ? 'Please wait...'
-                  : isLogin
-                  ? 'Sign In'
-                  : 'Create Account'}
-              </Button>
-            </form>
-          </div>
+            {/* Google Sign-In */}
+            <div className="mt-4">
+              <GoogleSignIn
+                onSuccess={async (credential) => {
+                  console.log('🔵 Step 0: Page - Google Sign-In onSuccess triggered');
+                  setIsGoogleLoading(true);
+                  setError('');
+                  try {
+                    await loginWithGoogle(credential);
+                    console.log('✅ Step 9: Page - Authentication successful, redirecting to /chat');
+                    router.push('/chat');
+                  } catch (err) {
+                    console.error('❌ Step 9: Page - Error during authentication:', err);
+                    const errorMessage = err instanceof Error ? err.message : 'Google authentication failed';
+                    setError(errorMessage);
+                    console.error('   Error message displayed to user:', errorMessage);
+                  } finally {
+                    setIsGoogleLoading(false);
+                  }
+                }}
+                onError={(errorMsg) => {
+                  console.error('❌ Page - GoogleSignIn onError:', errorMsg);
+                  setError(errorMsg);
+                  setIsGoogleLoading(false);
+                }}
+                disabled={isGoogleLoading}
+              />
+            </div>
+        </div>
 
           <p className="text-center text-text-secondary text-sm mt-6">
             Get started with financial analysis and insights

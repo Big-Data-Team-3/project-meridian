@@ -1,8 +1,8 @@
-from langchain_core.tools import tool
+from agents import function_tool
 from typing import Annotated
 from dataflows.interface import route_to_vendor
 
-@tool
+@function_tool
 def get_indicators(
     symbol: Annotated[str, "ticker symbol of the company"],
     indicator: Annotated[str, "technical indicator to get the analysis and report of"],

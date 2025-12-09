@@ -29,7 +29,7 @@
 }
 
 /* Font variables */
-:root {
+  :root {
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
 }
@@ -38,7 +38,7 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-}
+  }
 
 html {
   height: 100%;
