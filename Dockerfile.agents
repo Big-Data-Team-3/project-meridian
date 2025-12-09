@@ -22,6 +22,8 @@ COPY meridian-agents/server.py ./server.py
 COPY meridian-agents/agents_module/ ./agents_module/
 COPY meridian-agents/graph/ ./graph/
 COPY meridian-agents/dataflows/ ./dataflows/
+COPY meridian-agents/models/ ./models/
+COPY meridian-agents/utils/ ./utils/
 COPY meridian-agents/default_config.py .
 
 # Copy client modules
@@ -47,7 +49,7 @@ EXPOSE 8001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD python -c "import sys; sys.exit(0)" || exit 1
+    CMD python -c "import httpx; r = httpx.get('http://localhost:8001/health', timeout=5.0); assert r.status_code == 200; assert r.json()['status'] in ['ok', 'error']" || exit 1
 
 # Start the API server
 CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]

@@ -1,0 +1,77 @@
+"""
+Request models for Meridian Agents Service API endpoints.
+"""
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+
+
+class ConversationMessage(BaseModel):
+    """Message in conversation context."""
+    id: str = Field(..., description="Message ID (format: msg-{uuid})")
+    role: str = Field(..., description="Message role (user, assistant, system)")
+    content: str = Field(..., description="Message content")
+    timestamp: str = Field(..., description="Message timestamp (ISO format)")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Optional message metadata")
+
+
+class AnalyzeRequest(BaseModel):
+    """Request model for /analyze endpoint."""
+    company_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Company name or ticker symbol"
+    )
+    trade_date: str = Field(
+        ...,
+        pattern=r'^\d{4}-\d{2}-\d{2}$',
+        description="Trade date (ISO format: YYYY-MM-DD)"
+    )
+    conversation_context: Optional[List[ConversationMessage]] = Field(
+        None,
+        max_items=50,
+        description="Optional conversation context (last N messages, max 50)"
+    )
+    
+    @classmethod
+    def validate_company_name(cls, v: str) -> str:
+        """Validate company name format."""
+        if not v or not v.strip():
+            raise ValueError("company_name cannot be empty")
+        # Remove whitespace
+        return v.strip().upper()
+    
+    @classmethod
+    def validate_trade_date(cls, v: str) -> str:
+        """Validate trade date format."""
+        import re
+        from datetime import datetime
+        
+        # Check format
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', v):
+            raise ValueError("trade_date must be in YYYY-MM-DD format")
+        
+        # Check if valid date
+        try:
+            datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"Invalid date: {v}")
+        
+        return v
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "company_name": "AAPL",
+                "trade_date": "2024-12-19",
+                "conversation_context": [
+                    {
+                        "id": "msg-12345678",
+                        "role": "user",
+                        "content": "What about Apple?",
+                        "timestamp": "2024-12-19T10:00:00Z"
+                    }
+                ]
+            }
+        }
+
