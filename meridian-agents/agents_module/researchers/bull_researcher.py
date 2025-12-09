@@ -1,9 +1,19 @@
-from langchain_core.messages import AIMessage
+from agents import Agent, Runner
 import time
 import json
 
 
-def create_bull_researcher(llm, memory):
+def create_bull_researcher(model: str, memory):
+    """
+    Create a Bull Researcher using OpenAI Agents SDK.
+    
+    Args:
+        model: OpenAI model to use (e.g., "gpt-4o-mini")
+        memory: FinancialSituationMemory instance
+    
+    Returns:
+        A function that takes state and returns updated state
+    """
     def bull_node(state) -> dict:
         investment_debate_state = state["investment_debate_state"]
         history = investment_debate_state.get("history", "")
@@ -22,7 +32,8 @@ def create_bull_researcher(llm, memory):
         for i, rec in enumerate(past_memories, 1):
             past_memory_str += rec["recommendation"] + "\n\n"
 
-        prompt = f"""You are a Bull Analyst advocating for investing in the stock. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
+        # Create system instructions
+        system_instructions = """You are a Bull Analyst advocating for investing in the stock. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
 
 Key points to focus on:
 - Growth Potential: Highlight the company's market opportunities, revenue projections, and scalability.
@@ -31,7 +42,10 @@ Key points to focus on:
 - Bear Counterpoints: Critically analyze the bear argument with specific data and sound reasoning, addressing concerns thoroughly and showing why the bull perspective holds stronger merit.
 - Engagement: Present your argument in a conversational style, engaging directly with the bear analyst's points and debating effectively rather than just listing data.
 
-Resources available:
+You must also address reflections and learn from lessons and mistakes you made in the past."""
+
+        # Create user message with context
+        user_message = f"""Resources available:
 Market research report: {market_research_report}
 Social media sentiment report: {sentiment_report}
 Latest world affairs news: {news_report}
@@ -39,21 +53,57 @@ Company fundamentals report: {fundamentals_report}
 Conversation history of the debate: {history}
 Last bear argument: {current_response}
 Reflections from similar situations and lessons learned: {past_memory_str}
-Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position. You must also address reflections and learn from lessons and mistakes you made in the past.
-"""
 
-        response = llm.invoke(prompt)
+Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position."""
 
-        argument = f"Bull Analyst: {response.content}"
+        # Create agent and run
+        agent = Agent(
+            name="Bull Researcher",
+            instructions=system_instructions,
+            model=model,
+            tools=[],  # No tools needed for this agent
+        )
 
-        new_investment_debate_state = {
-            "history": history + "\n" + argument,
-            "bull_history": bull_history + "\n" + argument,
-            "bear_history": investment_debate_state.get("bear_history", ""),
-            "current_response": argument,
-            "count": investment_debate_state["count"] + 1,
-        }
+        try:
+            result = Runner.run_sync(agent, user_message)
+            
+            # Extract response
+            if hasattr(result, 'final_output'):
+                response_content = result.final_output
+            elif hasattr(result, 'content'):
+                response_content = result.content
+            elif isinstance(result, str):
+                response_content = result
+            elif isinstance(result, dict):
+                response_content = result.get('final_output') or result.get('content') or str(result)
+            else:
+                response_content = str(result)
 
-        return {"investment_debate_state": new_investment_debate_state}
+            argument = f"Bull Analyst: {response_content}"
+
+            new_investment_debate_state = {
+                "history": history + "\n" + argument,
+                "bull_history": bull_history + "\n" + argument,
+                "bear_history": investment_debate_state.get("bear_history", ""),
+                "current_response": argument,
+                "count": investment_debate_state["count"] + 1,
+            }
+
+            return {"investment_debate_state": new_investment_debate_state}
+        except Exception as e:
+            error_msg = f"Error running bull researcher: {str(e)}"
+            print(f"❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
+            
+            argument = f"Bull Analyst: {error_msg}"
+            new_investment_debate_state = {
+                "history": history + "\n" + argument,
+                "bull_history": bull_history + "\n" + argument,
+                "bear_history": investment_debate_state.get("bear_history", ""),
+                "current_response": argument,
+                "count": investment_debate_state["count"] + 1,
+            }
+            return {"investment_debate_state": new_investment_debate_state}
 
     return bull_node

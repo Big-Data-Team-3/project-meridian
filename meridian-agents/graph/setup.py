@@ -37,15 +37,14 @@ class GraphSetup:
         self.conditional_logic = conditional_logic
 
     def setup_graph(
-        self, selected_analysts=["market", "social", "news", "fundamentals"]
+        self, selected_analysts=["market", "information", "fundamentals"]
     ):
         """Set up and compile the agent workflow graph.
 
         Args:
             selected_analysts (list): List of analyst types to include. Options are:
                 - "market": Market analyst
-                - "social": Social media analyst
-                - "news": News analyst
+                - "information": Information analyst (combines news and social media analysis)
                 - "fundamentals": Fundamentals analyst
         """
         if len(selected_analysts) == 0:
@@ -61,17 +60,11 @@ class GraphSetup:
             )
             delete_nodes["market"] = create_msg_delete()
 
-        if "social" in selected_analysts:
-            analyst_nodes["social"] = create_social_media_analyst(
+        if "information" in selected_analysts:
+            analyst_nodes["information"] = create_information_analyst(
                 model=self.config.get("quick_think_llm", "gpt-4o-mini")
             )
-            delete_nodes["social"] = create_msg_delete()
-
-        if "news" in selected_analysts:
-            analyst_nodes["news"] = create_news_analyst(
-                model=self.config.get("quick_think_llm", "gpt-4o-mini")
-            )
-            delete_nodes["news"] = create_msg_delete()
+            delete_nodes["information"] = create_msg_delete()
 
         if "fundamentals" in selected_analysts:
             analyst_nodes["fundamentals"] = create_fundamentals_analyst(
@@ -79,24 +72,37 @@ class GraphSetup:
             )
             delete_nodes["fundamentals"] = create_msg_delete()
 
-        # Create researcher and manager nodes
+        # Create researcher and manager nodes (using OpenAI Agents SDK - model string instead of llm object)
         bull_researcher_node = create_bull_researcher(
-            self.quick_thinking_llm, self.bull_memory
+            model=self.config.get("quick_think_llm", "gpt-4o-mini"),
+            memory=self.bull_memory
         )
         bear_researcher_node = create_bear_researcher(
-            self.quick_thinking_llm, self.bear_memory
+            model=self.config.get("quick_think_llm", "gpt-4o-mini"),
+            memory=self.bear_memory
         )
         research_manager_node = create_research_manager(
-            self.deep_thinking_llm, self.invest_judge_memory
+            model=self.config.get("deep_think_llm", "gpt-4o"),
+            memory=self.invest_judge_memory
         )
-        trader_node = create_trader(self.quick_thinking_llm, self.trader_memory)
+        trader_node = create_trader(
+            model=self.config.get("quick_think_llm", "gpt-4o-mini"),
+            memory=self.trader_memory
+        )
 
-        # Create risk analysis nodes
-        risky_analyst = create_risky_debator(self.quick_thinking_llm)
-        neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
-        safe_analyst = create_safe_debator(self.quick_thinking_llm)
+        # Create risk analysis nodes (using OpenAI Agents SDK)
+        risky_analyst = create_risky_debator(
+            model=self.config.get("quick_think_llm", "gpt-4o-mini")
+        )
+        neutral_analyst = create_neutral_debator(
+            model=self.config.get("quick_think_llm", "gpt-4o-mini")
+        )
+        safe_analyst = create_safe_debator(
+            model=self.config.get("quick_think_llm", "gpt-4o-mini")
+        )
         risk_manager_node = create_risk_manager(
-            self.deep_thinking_llm, self.risk_manager_memory
+            model=self.config.get("deep_think_llm", "gpt-4o"),
+            memory=self.risk_manager_memory
         )
 
         # Create workflow

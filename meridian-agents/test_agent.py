@@ -8,13 +8,11 @@ from datetime import datetime
 from langchain_core.messages import HumanMessage, AIMessage
 from agents_module.analysts.fundamentals_analyst import create_fundamentals_analyst
 from agents_module.analysts.market_analyst import create_market_analyst
-from agents_module.analysts.news_analyst import create_news_analyst
-from agents_module.analysts.social_media_analyst import create_social_media_analyst
+from agents_module.analysts.information_analyst import create_information_analyst
 from agents_module.utils.agent_states import InvestDebateState, RiskDebateState
 from default_config import DEFAULT_CONFIG
 import os
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from agents_module.utils.memory import FinancialSituationMemory
 from agents_module.researchers.bull_researcher import create_bull_researcher
 from agents_module.researchers.bear_researcher import create_bear_researcher
@@ -147,12 +145,12 @@ def test_market_analyst(ticker: str, date: str):
         traceback.print_exc()
         return None
 
-def test_news_analyst(ticker: str, date: str):
-    """Test News Analyst agent using OpenAI Agents SDK"""
-    print(f"🧪 Testing News Analyst (OpenAI Agents SDK) for {ticker} on {date}")
+def test_information_analyst(ticker: str, date: str):
+    """Test Information Analyst agent using OpenAI Agents SDK (combines news and social media analysis)"""
+    print(f"🧪 Testing Information Analyst (OpenAI Agents SDK) for {ticker} on {date}")
     print("=" * 60)
     
-    agent_func = create_news_analyst(model="gpt-4o-mini")
+    agent_func = create_information_analyst(model="gpt-4o-mini")
     state = create_test_state(ticker, date)
     
     print(f"📊 Running agent for {ticker}...")
@@ -161,7 +159,8 @@ def test_news_analyst(ticker: str, date: str):
     
     try:
         final_state = agent_func(state)
-        report = final_state.get("news_report", "")
+        # Information analyst returns information_report, news_report, and sentiment_report
+        report = final_state.get("information_report", "") or final_state.get("news_report", "") or final_state.get("sentiment_report", "")
         messages = final_state.get("messages", [])
         
         if not report:
@@ -171,7 +170,7 @@ def test_news_analyst(ticker: str, date: str):
                     break
         
         print("\n✅ Agent executed successfully!")
-        print(f"\n📊 News Report Preview:")
+        print(f"\n📊 Information Report Preview:")
         print("=" * 60)
         print(report[:1000] if report else "No report generated")
         if report and len(report) > 1000:
@@ -186,54 +185,14 @@ def test_news_analyst(ticker: str, date: str):
         traceback.print_exc()
         return None
 
-def test_social_media_analyst(ticker: str, date: str):
-    """Test Social Media Analyst agent using OpenAI Agents SDK"""
-    print(f"🧪 Testing Social Media Analyst (OpenAI Agents SDK) for {ticker} on {date}")
-    print("=" * 60)
-    
-    agent_func = create_social_media_analyst(model="gpt-4o-mini")
-    state = create_test_state(ticker, date)
-    
-    print(f"📊 Running agent for {ticker}...")
-    print(f"📅 Trade date: {date}")
-    print()
-    
-    try:
-        final_state = agent_func(state)
-        report = final_state.get("sentiment_report", "")
-        messages = final_state.get("messages", [])
-        
-        if not report:
-            for msg in reversed(messages):
-                if isinstance(msg, AIMessage) and msg.content:
-                    report = msg.content
-                    break
-        
-        print("\n✅ Agent executed successfully!")
-        print(f"\n📊 Sentiment Report Preview:")
-        print("=" * 60)
-        print(report[:1000] if report else "No report generated")
-        if report and len(report) > 1000:
-            print(f"\n... (truncated, total length: {len(report)} characters)")
-        print("=" * 60)
-        print(f"\n📝 Total messages: {len(messages)}")
-        
-        return final_state
-    except Exception as e:
-        print(f"\n❌ Error running agent: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
-# Test functions for agents that use LLM directly (LangChain, not OpenAI Agents SDK)
+# Test functions for agents that use OpenAI Agents SDK
 def test_bull_researcher(ticker: str, date: str):
-    """Test Bull Researcher agent"""
-    print(f"🧪 Testing Bull Researcher for {ticker} on {date}")
+    """Test Bull Researcher agent using OpenAI Agents SDK"""
+    print(f"🧪 Testing Bull Researcher (OpenAI Agents SDK) for {ticker} on {date}")
     print("=" * 60)
     
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     memory = FinancialSituationMemory("bull_memory", DEFAULT_CONFIG)
-    agent_func = create_bull_researcher(llm, memory)
+    agent_func = create_bull_researcher(model="gpt-4o-mini", memory=memory)
     
     # Create state with sample reports (bull researcher needs reports from analysts)
     state = create_test_state(ticker, date, include_sample_reports=True)
@@ -263,13 +222,12 @@ def test_bull_researcher(ticker: str, date: str):
         return None
 
 def test_bear_researcher(ticker: str, date: str):
-    """Test Bear Researcher agent"""
-    print(f"🧪 Testing Bear Researcher for {ticker} on {date}")
+    """Test Bear Researcher agent using OpenAI Agents SDK"""
+    print(f"🧪 Testing Bear Researcher (OpenAI Agents SDK) for {ticker} on {date}")
     print("=" * 60)
     
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     memory = FinancialSituationMemory("bear_memory", DEFAULT_CONFIG)
-    agent_func = create_bear_researcher(llm, memory)
+    agent_func = create_bear_researcher(model="gpt-4o-mini", memory=memory)
     
     state = create_test_state(ticker, date, include_sample_reports=True)
     
@@ -298,13 +256,12 @@ def test_bear_researcher(ticker: str, date: str):
         return None
 
 def test_research_manager(ticker: str, date: str):
-    """Test Research Manager agent"""
-    print(f"🧪 Testing Research Manager for {ticker} on {date}")
+    """Test Research Manager agent using OpenAI Agents SDK"""
+    print(f"🧪 Testing Research Manager (OpenAI Agents SDK) for {ticker} on {date}")
     print("=" * 60)
     
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     memory = FinancialSituationMemory("invest_judge_memory", DEFAULT_CONFIG)
-    agent_func = create_research_manager(llm, memory)
+    agent_func = create_research_manager(model="gpt-4o", memory=memory)
     
     state = create_test_state(ticker, date, include_sample_reports=True)
     
@@ -335,13 +292,12 @@ def test_research_manager(ticker: str, date: str):
         return None
 
 def test_trader(ticker: str, date: str):
-    """Test Trader agent"""
-    print(f"🧪 Testing Trader for {ticker} on {date}")
+    """Test Trader agent using OpenAI Agents SDK"""
+    print(f"🧪 Testing Trader (OpenAI Agents SDK) for {ticker} on {date}")
     print("=" * 60)
     
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     memory = FinancialSituationMemory("trader_memory", DEFAULT_CONFIG)
-    agent_func = create_trader(llm, memory)
+    agent_func = create_trader(model="gpt-4o-mini", memory=memory)
     
     state = create_test_state(ticker, date, include_sample_reports=True)
     state["investment_plan"] = "Sample investment plan: Buy with moderate position size."
@@ -370,12 +326,11 @@ def test_trader(ticker: str, date: str):
         return None
 
 def test_risky_debator(ticker: str, date: str):
-    """Test Risky Debator agent"""
-    print(f"🧪 Testing Risky Debator for {ticker} on {date}")
+    """Test Risky Debator agent using OpenAI Agents SDK"""
+    print(f"🧪 Testing Risky Debator (OpenAI Agents SDK) for {ticker} on {date}")
     print("=" * 60)
     
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    agent_func = create_risky_debator(llm)
+    agent_func = create_risky_debator(model="gpt-4o-mini")
     
     state = create_test_state(ticker, date, include_sample_reports=True)
     state["trader_investment_plan"] = "Sample trader decision: Buy with high risk tolerance."
@@ -405,12 +360,11 @@ def test_risky_debator(ticker: str, date: str):
         return None
 
 def test_safe_debator(ticker: str, date: str):
-    """Test Safe Debator agent"""
-    print(f"🧪 Testing Safe Debator for {ticker} on {date}")
+    """Test Safe Debator agent using OpenAI Agents SDK"""
+    print(f"🧪 Testing Safe Debator (OpenAI Agents SDK) for {ticker} on {date}")
     print("=" * 60)
     
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    agent_func = create_safe_debator(llm)
+    agent_func = create_safe_debator(model="gpt-4o-mini")
     
     state = create_test_state(ticker, date, include_sample_reports=True)
     state["trader_investment_plan"] = "Sample trader decision: Buy with moderate risk."
@@ -440,12 +394,11 @@ def test_safe_debator(ticker: str, date: str):
         return None
 
 def test_neutral_debator(ticker: str, date: str):
-    """Test Neutral Debator agent"""
-    print(f"🧪 Testing Neutral Debator for {ticker} on {date}")
+    """Test Neutral Debator agent using OpenAI Agents SDK"""
+    print(f"🧪 Testing Neutral Debator (OpenAI Agents SDK) for {ticker} on {date}")
     print("=" * 60)
     
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    agent_func = create_neutral_debator(llm)
+    agent_func = create_neutral_debator(model="gpt-4o-mini")
     
     state = create_test_state(ticker, date, include_sample_reports=True)
     state["trader_investment_plan"] = "Sample trader decision: Hold with balanced approach."
@@ -475,13 +428,12 @@ def test_neutral_debator(ticker: str, date: str):
         return None
 
 def test_risk_manager(ticker: str, date: str):
-    """Test Risk Manager agent"""
-    print(f"🧪 Testing Risk Manager for {ticker} on {date}")
+    """Test Risk Manager agent using OpenAI Agents SDK"""
+    print(f"🧪 Testing Risk Manager (OpenAI Agents SDK) for {ticker} on {date}")
     print("=" * 60)
     
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     memory = FinancialSituationMemory("risk_manager_memory", DEFAULT_CONFIG)
-    agent_func = create_risk_manager(llm, memory)
+    agent_func = create_risk_manager(model="gpt-4o", memory=memory)
     
     state = create_test_state(ticker, date, include_sample_reports=True)
     state["investment_plan"] = "Sample investment plan: Buy with moderate position."
@@ -515,7 +467,7 @@ def test_risk_manager(ticker: str, date: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test individual agents")
     parser.add_argument("--agent", required=True, 
-                       choices=["market", "fundamentals", "news", "social", 
+                       choices=["market", "fundamentals", "information", 
                                "bull", "bear", "research_manager", "trader",
                                "risky", "safe", "neutral", "risk_manager"],
                        help="Agent to test")
@@ -530,10 +482,8 @@ if __name__ == "__main__":
         test_fundamentals_analyst(args.ticker, args.date)
     elif args.agent == "market":
         test_market_analyst(args.ticker, args.date)
-    elif args.agent == "news":
-        test_news_analyst(args.ticker, args.date)
-    elif args.agent == "social":
-        test_social_media_analyst(args.ticker, args.date)
+    elif args.agent == "information":
+        test_information_analyst(args.ticker, args.date)
     elif args.agent == "bull":
         test_bull_researcher(args.ticker, args.date)
     elif args.agent == "bear":

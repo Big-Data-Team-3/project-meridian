@@ -29,7 +29,8 @@ FAILED=0
 FAILED_AGENTS=()
 
 # Agent list - organized by category
-ANALYST_AGENTS=("market" "fundamentals" "news" "social")
+# Note: "information" agent combines the functionality of the old "news" and "social" agents
+ANALYST_AGENTS=("market" "fundamentals" "information")
 RESEARCHER_AGENTS=("bull" "bear")
 MANAGER_AGENTS=("research_manager" "trader" "risk_manager")
 DEBATOR_AGENTS=("risky" "safe" "neutral")
@@ -114,7 +115,7 @@ done
 
 # Test Researcher Agents
 echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}🔍 RESEARCHER AGENTS (LangChain)${NC}"
+echo -e "${BLUE}🔍 RESEARCHER AGENTS (OpenAI Agents SDK)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
 for agent in "${RESEARCHER_AGENTS[@]}"; do
@@ -123,7 +124,7 @@ done
 
 # Test Manager Agents
 echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}👔 MANAGER AGENTS (LangChain)${NC}"
+echo -e "${BLUE}👔 MANAGER AGENTS (OpenAI Agents SDK)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
 for agent in "${MANAGER_AGENTS[@]}"; do
@@ -132,7 +133,7 @@ done
 
 # Test Debator Agents
 echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}💬 DEBATOR AGENTS (LangChain)${NC}"
+echo -e "${BLUE}💬 DEBATOR AGENTS (OpenAI Agents SDK)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
 for agent in "${DEBATOR_AGENTS[@]}"; do
