@@ -574,6 +574,42 @@ async def delete_conversation(
     return {"message": "Conversation deleted successfully"}
 
 # ============================================================================
+# ============================================================================
+# Agents Service Integration
+# ============================================================================
+
+class AgentAnalyzeRequest(BaseModel):
+    company_name: str
+    trade_date: str
+
+@app.post("/api/agents/analyze")
+async def agents_analyze(request: AgentAnalyzeRequest):
+    """
+    Analyze a company using the agents service.
+    Proxies request to agents service at AGENTS_SERVICE_URL/analyze
+    """
+    import httpx
+    
+    agents_url = os.getenv("AGENTS_SERVICE_URL", "http://localhost:8001")
+    analyze_endpoint = f"{agents_url}/analyze"
+    
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min timeout for analysis
+            response = await client.post(
+                analyze_endpoint,
+                json={
+                    "company_name": request.company_name,
+                    "trade_date": request.trade_date
+                }
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Agents service error: {str(e)}"
+        )
+
 # Agents Health Check (Proxy to Agents Service)
 # ============================================================================
 

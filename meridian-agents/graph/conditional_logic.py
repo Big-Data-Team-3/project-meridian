@@ -16,15 +16,10 @@ class ConditionalLogic:
         With OpenAI Agents SDK, tools are executed internally, so always go to message clear."""
         return "Msg Clear Market"
 
-    def should_continue_social(self, state: AgentState):
-        """Determine if social media analysis should continue.
+    def should_continue_information(self, state: AgentState):
+        """Determine if information analysis should continue.
         With OpenAI Agents SDK, tools are executed internally, so always go to message clear."""
-        return "Msg Clear Social"
-
-    def should_continue_news(self, state: AgentState):
-        """Determine if news analysis should continue.
-        With OpenAI Agents SDK, tools are executed internally, so always go to message clear."""
-        return "Msg Clear News"
+        return "Msg Clear Information"
 
     def should_continue_fundamentals(self, state: AgentState):
         """Determine if fundamentals analysis should continue.
