@@ -4,7 +4,7 @@ All endpoints return 200 status codes with mock data for development
 """
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, Field
 from typing import Optional, List
 from datetime import datetime, timedelta
 import uvicorn
@@ -578,36 +578,102 @@ async def delete_conversation(
 # Agents Service Integration
 # ============================================================================
 
-class AgentAnalyzeRequest(BaseModel):
-    company_name: str
-    trade_date: str
+class ConversationMessage(BaseModel):
+    """Message in conversation context for agents analysis."""
+    id: str = Field(..., description="Message ID (format: msg-{uuid})")
+    role: str = Field(..., description="Message role: 'user', 'assistant', or 'system'")
+    content: str = Field(..., description="Message content")
+    timestamp: str = Field(..., description="Message timestamp in ISO format (e.g., '2024-12-19T10:00:00Z')")
+    metadata: Optional[dict] = Field(None, description="Optional message metadata")
 
-@app.post("/api/agents/analyze")
+class AgentAnalyzeRequest(BaseModel):
+    """Request model for agents analysis endpoint."""
+    company_name: str = Field(..., description="Company name or ticker symbol (e.g., 'AAPL', 'Apple Inc.')", min_length=1, max_length=100)
+    trade_date: str = Field(..., description="Trade date in ISO format YYYY-MM-DD (e.g., '2024-12-19')", pattern=r'^\d{4}-\d{2}-\d{2}$')
+    conversation_context: Optional[List[ConversationMessage]] = Field(None, description="Optional conversation context (chat history) to provide context to agents (max 50 messages, last 20 used)")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "company_name": "AAPL",
+                "trade_date": "2024-12-19",
+                "conversation_context": [
+                    {
+                        "id": "msg-12345678",
+                        "role": "user",
+                        "content": "What about Apple?",
+                        "timestamp": "2024-12-19T10:00:00Z"
+                    }
+                ]
+            }
+        }
+
+class AgentAnalyzeResponse(BaseModel):
+    """Response model for agents analysis endpoint."""
+    company: str = Field(..., description="Company name or ticker")
+    date: str = Field(..., description="Trade date")
+    decision: str = Field(..., description="Trading decision: 'BUY', 'SELL', or 'HOLD'")
+    state: dict = Field(..., description="Complete analysis state with all agent outputs and reports")
+
+@app.post("/api/agents/analyze", response_model=AgentAnalyzeResponse)
 async def agents_analyze(request: AgentAnalyzeRequest):
     """
     Analyze a company using the agents service.
     Proxies request to agents service at AGENTS_SERVICE_URL/analyze
+    
+    Supports optional conversation_context for providing chat history to agents.
     """
     import httpx
     
     agents_url = os.getenv("AGENTS_SERVICE_URL", "http://localhost:8001")
     analyze_endpoint = f"{agents_url}/analyze"
     
+    # Build request payload
+    payload = {
+        "company_name": request.company_name,
+        "trade_date": request.trade_date
+    }
+    
+    # Add conversation context if provided
+    if request.conversation_context:
+        payload["conversation_context"] = [
+            {
+                "id": msg.id,
+                "role": msg.role,
+                "content": msg.content,
+                "timestamp": msg.timestamp,
+                "metadata": msg.metadata
+            }
+            for msg in request.conversation_context
+        ]
+    
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min timeout for analysis
             response = await client.post(
                 analyze_endpoint,
-                json={
-                    "company_name": request.company_name,
-                    "trade_date": request.trade_date
-                }
+                json=payload
             )
             response.raise_for_status()
             return response.json()
-    except httpx.HTTPError as e:
+    except httpx.HTTPStatusError as e:
+        # Handle HTTP errors with status codes
+        error_detail = f"Agents service error: {e.response.status_code}"
+        try:
+            error_body = e.response.json()
+            if "detail" in error_body:
+                error_detail = f"Agents service error: {error_body['detail']}"
+        except:
+            error_detail = f"Agents service error: {e.response.text or str(e)}"
+        
         raise HTTPException(
-            status_code=502,
-            detail=f"Agents service error: {str(e)}"
+            status_code=e.response.status_code if e.response.status_code < 500 else 502,
+            detail=error_detail
+        )
+    except httpx.RequestError as e:
+        # Handle connection errors, timeouts, etc.
+        raise HTTPException(
+            status_code=503,
+            detail=f"Agents service unavailable: {str(e)}"
         )
 
 # Agents Health Check (Proxy to Agents Service)
