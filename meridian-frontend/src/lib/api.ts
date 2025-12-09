@@ -11,13 +11,14 @@ import type {
   RegisterCredentials,
 } from '@/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Backend API URL - defaults to localhost:8000 for local development
+const BACKEND_API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_API_URL || 'http://localhost:8000';
 
 class ApiClient {
   private baseUrl: string;
   private token: string | null = null;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string = BACKEND_API_URL) {
     this.baseUrl = baseUrl;
     if (typeof window !== 'undefined') {
       this.token = localStorage.getItem('meridian-token');
@@ -39,26 +40,43 @@ class ApiClient {
     }
 
     try {
+      console.log(`🌐 API Request: ${options.method || 'GET'} ${url}`);
       const response = await fetch(url, {
         ...options,
         headers,
       });
 
-      const data = await response.json().catch(() => ({}));
+      console.log(`🌐 API Response: ${response.status} ${response.statusText}`);
+      
+      const data = await response.json().catch((err) => {
+        console.error('❌ Failed to parse JSON response:', err);
+        return {};
+      });
 
       if (!response.ok) {
+        console.error(`❌ API Error Response:`, {
+          status: response.status,
+          error: data.error || data.message,
+          data,
+        });
         return {
           data: data as T,
-          error: data.error || `HTTP ${response.status}`,
+          error: data.error || data.message || data.detail || `HTTP ${response.status}`,
           status: response.status,
         };
       }
+
+      console.log('✅ API Success Response:', {
+        status: response.status,
+        hasData: !!data,
+      });
 
       return {
         data: data as T,
         status: response.status,
       };
     } catch (error) {
+      console.error('❌ Network Error:', error);
       return {
         data: {} as T,
         error: error instanceof Error ? error.message : 'Network error',
@@ -104,6 +122,36 @@ class ApiClient {
     });
   }
 
+  async loginWithGoogle(
+    credential: string
+  ): Promise<ApiResponse<LoginResponse>> {
+    console.log('🔵 Step 3: API Client - Sending Google credential to backend');
+    console.log('   Endpoint:', `${this.baseUrl}/api/auth/google`);
+    console.log('   Credential length:', credential.length);
+    
+    const response = await this.request<LoginResponse>('/api/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    });
+    
+    console.log('🔵 Step 4: API Client - Received response');
+    console.log('   Status:', response.status);
+    console.log('   Has error:', !!response.error);
+    console.log('   Has data:', !!response.data);
+    if (response.error) {
+      console.error('❌ API Error:', response.error);
+    }
+    if (response.data) {
+      console.log('✅ Response data:', {
+        hasUser: !!response.data.user,
+        hasToken: !!response.data.token,
+        userEmail: response.data.user?.email,
+      });
+    }
+    
+    return response;
+  }
+
   async sendMessage(
     request: SendMessageRequest
   ): Promise<ApiResponse<SendMessageResponse>> {
@@ -146,5 +194,5 @@ class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient(API_BASE_URL);
+export const apiClient = new ApiClient(BACKEND_API_URL);
 

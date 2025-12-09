@@ -27,6 +27,7 @@ echo "Enabling essential APIs..."
 gcloud services enable compute.googleapis.com              # Compute Engine
 gcloud services enable storage-component.googleapis.com     # Cloud Storage (GCS)
 gcloud services enable sqladmin.googleapis.com              # Cloud SQL
+gcloud services enable identitytoolkit.googleapis.com        # Identity Toolkit
 
 # Optional but recommended
 gcloud services enable run.googleapis.com                   # Cloud Run (if using)
