@@ -1,0 +1,209 @@
+import type {
+  ApiResponse,
+  LoginResponse,
+  SendMessageRequest,
+  SendMessageResponse,
+  GetConversationsResponse,
+  GetMessagesResponse,
+  CreateConversationResponse,
+  HealthCheckResponse,
+  LoginCredentials,
+  RegisterCredentials,
+} from '@/types';
+import { STORAGE_KEYS } from '@/lib/storage';
+
+// Backend API URL - defaults to localhost:8000 for local development
+const BACKEND_API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_API_URL || 'http://localhost:8000';
+
+class ApiClient {
+  private baseUrl: string;
+  private token: string | null = null;
+
+  constructor(baseUrl: string = BACKEND_API_URL) {
+    this.baseUrl = baseUrl;
+    if (typeof window !== 'undefined') {
+      // Restore token from localStorage on initialization
+      try {
+        const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+        this.token = storedToken ? JSON.parse(storedToken) : null;
+      } catch {
+        this.token = null;
+      }
+    }
+  }
+
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<ApiResponse<T>> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string> | undefined),
+    };
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    try {
+      console.log(`🌐 API Request: ${options.method || 'GET'} ${url}`);
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
+
+      console.log(`🌐 API Response: ${response.status} ${response.statusText}`);
+      
+      const data = await response.json().catch((err) => {
+        console.error('❌ Failed to parse JSON response:', err);
+        return {};
+      });
+
+      if (!response.ok) {
+        console.error(`❌ API Error Response:`, {
+          status: response.status,
+          error: data.error || data.message,
+          data,
+        });
+        return {
+          data: data as T,
+          error: data.error || data.message || data.detail || `HTTP ${response.status}`,
+          status: response.status,
+        };
+      }
+
+      console.log('✅ API Success Response:', {
+        status: response.status,
+        hasData: !!data,
+      });
+
+      return {
+        data: data as T,
+        status: response.status,
+      };
+    } catch (error) {
+      console.error('❌ Network Error:', error);
+      return {
+        data: {} as T,
+        error: error instanceof Error ? error.message : 'Network error',
+        status: 0,
+      };
+    }
+  }
+
+  setToken(token: string | null): void {
+    this.token = token;
+    if (typeof window !== 'undefined') {
+      if (token) {
+        // Store token using the same storage utility as AuthContext
+        // Note: storage.set() uses JSON.stringify, so we need to match that
+        localStorage.setItem(STORAGE_KEYS.TOKEN, JSON.stringify(token));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+      }
+    }
+  }
+
+  async healthCheck(): Promise<ApiResponse<HealthCheckResponse>> {
+    return this.request<HealthCheckResponse>('/api/health');
+  }
+
+  async login(
+    credentials: LoginCredentials
+  ): Promise<ApiResponse<LoginResponse>> {
+    return this.request<LoginResponse>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    });
+  }
+
+  async register(
+    credentials: RegisterCredentials
+  ): Promise<ApiResponse<LoginResponse>> {
+    return this.request<LoginResponse>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    });
+  }
+
+  async logout(): Promise<ApiResponse<{ message: string }>> {
+    return this.request<{ message: string }>('/api/auth/logout', {
+      method: 'POST',
+    });
+  }
+
+  async loginWithGoogle(
+    credential: string
+  ): Promise<ApiResponse<LoginResponse>> {
+    console.log('🔵 Step 3: API Client - Sending Google credential to backend');
+    console.log('   Endpoint:', `${this.baseUrl}/api/auth/google`);
+    console.log('   Credential length:', credential.length);
+    
+    const response = await this.request<LoginResponse>('/api/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    });
+    
+    console.log('🔵 Step 4: API Client - Received response');
+    console.log('   Status:', response.status);
+    console.log('   Has error:', !!response.error);
+    console.log('   Has data:', !!response.data);
+    if (response.error) {
+      console.error('❌ API Error:', response.error);
+    }
+    if (response.data) {
+      console.log('✅ Response data:', {
+        hasUser: !!response.data.user,
+        hasToken: !!response.data.token,
+        userEmail: response.data.user?.email,
+      });
+    }
+    
+    return response;
+  }
+
+  async sendMessage(
+    request: SendMessageRequest
+  ): Promise<ApiResponse<SendMessageResponse>> {
+    return this.request<SendMessageResponse>('/api/chat/message', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getConversations(): Promise<ApiResponse<GetConversationsResponse>> {
+    return this.request<GetConversationsResponse>('/api/chat/conversations');
+  }
+
+  async getMessages(
+    conversationId: string
+  ): Promise<ApiResponse<GetMessagesResponse>> {
+    return this.request<GetMessagesResponse>(
+      `/api/chat/conversations/${conversationId}/messages`
+    );
+  }
+
+  async createConversation(
+    title?: string
+  ): Promise<ApiResponse<CreateConversationResponse>> {
+    return this.request<CreateConversationResponse>('/api/chat/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    });
+  }
+
+  async deleteConversation(
+    conversationId: string
+  ): Promise<ApiResponse<{ message: string }>> {
+    return this.request<{ message: string }>(
+      `/api/chat/conversations/${conversationId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+}
+
+export const apiClient = new ApiClient(BACKEND_API_URL);
+
