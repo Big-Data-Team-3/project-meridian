@@ -18,6 +18,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy agent-related code from meridian-agents directory
+COPY meridian-agents/server.py ./server.py
 COPY meridian-agents/agents_module/ ./agents_module/
 COPY meridian-agents/graph/ ./graph/
 COPY meridian-agents/dataflows/ ./dataflows/
@@ -49,4 +50,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD python -c "import sys; sys.exit(0)" || exit 1
 
 # Start the API server
-CMD ["python", "-m", "uvicorn", "agents_module.server:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]
