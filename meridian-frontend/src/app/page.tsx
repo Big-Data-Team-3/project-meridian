@@ -63,11 +63,11 @@ export default function Home(): ReactElement {
           <div className="text-center mb-8">
             <h1 className="text-3xl font-semibold text-text-primary mb-2">
               Meridian
-            </h1>
+          </h1>
             <p className="text-text-secondary">
               Financial Intelligence Platform
-            </p>
-          </div>
+          </p>
+        </div>
 
           <div className="bg-surface border border-border rounded-xl p-6 shadow-sm">
             <div className="flex gap-2 mb-6">
@@ -146,7 +146,7 @@ export default function Home(): ReactElement {
                   : 'Create Account'}
               </Button>
             </form>
-          </div>
+        </div>
 
           <p className="text-center text-text-secondary text-sm mt-6">
             Get started with financial analysis and insights
