@@ -1,8 +1,8 @@
-from langchain_core.tools import tool
+from agents import function_tool
 from typing import Annotated
 from dataflows.interface import route_to_vendor
 
-@tool
+@function_tool
 def get_news(
     ticker: Annotated[str, "Ticker symbol"],
     start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
@@ -20,7 +20,7 @@ def get_news(
     """
     return route_to_vendor("get_news", ticker, start_date, end_date)
 
-@tool
+@function_tool
 def get_global_news(
     curr_date: Annotated[str, "Current date in yyyy-mm-dd format"],
     look_back_days: Annotated[int, "Number of days to look back"] = 7,
@@ -38,7 +38,7 @@ def get_global_news(
     """
     return route_to_vendor("get_global_news", curr_date, look_back_days, limit)
 
-@tool
+@function_tool
 def get_insider_sentiment(
     ticker: Annotated[str, "ticker symbol for the company"],
     curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
@@ -54,7 +54,7 @@ def get_insider_sentiment(
     """
     return route_to_vendor("get_insider_sentiment", ticker, curr_date)
 
-@tool
+@function_tool
 def get_insider_transactions(
     ticker: Annotated[str, "ticker symbol"],
     curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
