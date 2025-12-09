@@ -46,13 +46,13 @@ export function InputBar({
   return (
     <div 
       className={cn(
-        "fixed bottom-0 right-0 bg-bg-primary border-t border-border p-4 transition-all duration-300 z-30",
+        "fixed bottom-0 right-0 bg-bg-primary/80 backdrop-blur-sm border-t border-border transition-all duration-300 z-30",
         sidebarOpen ? "lg:left-[260px]" : "lg:left-0",
         "left-0" // Mobile: full width
       )}
     >
-      <div className="max-w-[768px] mx-auto">
-        <div className="relative flex items-end gap-2 bg-surface border border-border rounded-2xl px-4 py-3 focus-within:ring-2 focus-within:ring-accent focus-within:border-transparent transition-all">
+      <div className="max-w-3xl mx-auto px-4 py-4">
+        <div className="relative flex items-end gap-2 bg-surface border border-border rounded-2xl px-4 py-2.5 shadow-sm hover:shadow-md focus-within:border-accent/60 focus-within:shadow-lg focus-within:shadow-accent/5 transition-all duration-200">
           <textarea
             ref={textareaRef}
             value={message}
@@ -63,10 +63,11 @@ export function InputBar({
             rows={1}
             className={cn(
               'flex-1 resize-none bg-transparent text-text-primary',
-              'placeholder:text-text-secondary',
+              'placeholder:text-text-secondary/60',
               'focus:outline-none',
               'max-h-[200px] overflow-y-auto',
-              'text-base leading-6'
+              'text-base leading-6',
+              'py-1.5'
             )}
             aria-label="Message input"
           />
@@ -74,27 +75,45 @@ export function InputBar({
             onClick={handleSend}
             disabled={!message.trim() || disabled}
             className={cn(
-              'p-2 rounded-lg transition-colors',
-              'focus:outline-none focus:ring-2 focus:ring-accent',
+              'flex items-center justify-center flex-shrink-0',
+              'w-8 h-8 rounded-lg transition-all duration-200',
+              'focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface',
+              'disabled:opacity-40 disabled:cursor-not-allowed',
               message.trim() && !disabled
-                ? 'bg-accent text-white hover:bg-accent-hover'
-                : 'bg-surface-hover text-text-secondary cursor-not-allowed'
+                ? 'bg-accent text-white hover:bg-accent-hover hover:scale-105 active:scale-95 shadow-sm'
+                : 'bg-transparent text-text-secondary/50 cursor-not-allowed'
             )}
             aria-label="Send message"
           >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-              />
-            </svg>
+            {message.trim() && !disabled ? (
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                />
+              </svg>
+            ) : (
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                />
+              </svg>
+            )}
           </button>
         </div>
       </div>
