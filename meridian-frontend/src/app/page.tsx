@@ -14,7 +14,10 @@ export default function Home(): ReactElement {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated && !authLoading) {
+    // Redirect authenticated users to chat page
+    // Wait for auth loading to complete to avoid flickering
+    if (!authLoading && isAuthenticated) {
+      console.log('🔄 Home page: User authenticated, redirecting to chat');
       router.push('/chat');
     }
   }, [isAuthenticated, authLoading, router]);

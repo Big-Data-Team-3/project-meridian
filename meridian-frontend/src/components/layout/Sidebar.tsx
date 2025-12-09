@@ -48,9 +48,15 @@ export function Sidebar({ isOpen, onClose, onNewChat }: SidebarProps): ReactElem
         className={cn(
           'fixed top-[60px] left-0 bottom-0 w-[260px]',
           'bg-surface border-r border-border',
-          'transform transition-transform duration-300 z-50',
-          'lg:translate-x-0',
-          isOpen ? 'translate-x-0' : '-translate-x-full'
+          'transform transition-transform duration-300',
+          // Mobile: overlay with z-50
+          'z-50 lg:z-40',
+          // Mobile: slide in/out
+          isOpen ? 'translate-x-0' : '-translate-x-full',
+          // Desktop: show when open, hide when closed
+          isOpen ? 'lg:translate-x-0' : 'lg:-translate-x-full',
+          // Disable pointer events when hidden to prevent interaction
+          !isOpen && 'pointer-events-none'
         )}
       >
         <div className="h-full flex flex-col">

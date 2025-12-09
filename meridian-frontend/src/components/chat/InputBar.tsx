@@ -7,12 +7,14 @@ interface InputBarProps {
   onSend: (message: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  sidebarOpen?: boolean;
 }
 
 export function InputBar({
   onSend,
   disabled = false,
   placeholder = 'Ask about financial data, stocks, or market analysis...',
+  sidebarOpen = false,
 }: InputBarProps): ReactElement {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -42,7 +44,13 @@ export function InputBar({
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-bg-primary border-t border-border p-4">
+    <div 
+      className={cn(
+        "fixed bottom-0 right-0 bg-bg-primary border-t border-border p-4 transition-all duration-300 z-30",
+        sidebarOpen ? "lg:left-[260px]" : "lg:left-0",
+        "left-0" // Mobile: full width
+      )}
+    >
       <div className="max-w-[768px] mx-auto">
         <div className="relative flex items-end gap-2 bg-surface border border-border rounded-2xl px-4 py-3 focus-within:ring-2 focus-within:ring-accent focus-within:border-transparent transition-all">
           <textarea

@@ -11,6 +11,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { MessageList } from '@/components/chat/MessageList';
 import { InputBar } from '@/components/chat/InputBar';
 import { Button } from '@/components/ui/Button';
+import { cn } from '@/lib/utils';
 
 export default function ChatPage(): ReactElement | null {
   const router = useRouter();
@@ -20,10 +21,13 @@ export default function ChatPage(): ReactElement | null {
     activeConversationId
   );
   const { createConversation, isCreating } = useConversations();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true); // Default to open on desktop
 
   useEffect(() => {
+    // Only redirect if auth loading is complete and user is not authenticated
+    // This prevents redirecting before auth state is restored from localStorage
     if (!authLoading && !isAuthenticated) {
+      console.log('🔄 Chat page: User not authenticated, redirecting to home');
       router.push('/');
     }
   }, [isAuthenticated, authLoading, router]);
@@ -71,7 +75,7 @@ export default function ChatPage(): ReactElement | null {
 
   return (
     <div className="h-screen flex flex-col bg-bg-primary overflow-hidden">
-      <Header />
+      <Header onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
       
       <div className="flex flex-1 pt-[60px] overflow-hidden">
         <Sidebar
@@ -80,7 +84,14 @@ export default function ChatPage(): ReactElement | null {
           onNewChat={handleNewChat}
         />
         
-        <main className="flex-1 flex flex-col overflow-hidden lg:ml-0">
+        <main 
+          className={cn(
+            "flex-1 flex flex-col overflow-hidden transition-all duration-300",
+            // Account for fixed sidebar on desktop when open
+            sidebarOpen ? "lg:ml-[260px]" : "lg:ml-0"
+          )}
+          style={sidebarOpen ? { width: 'calc(100% - 260px)' } : { width: '100%' }}
+        >
           {messages.length === 0 && !isLoading ? (
             <div className="flex-1 flex items-center justify-center px-4">
               <div className="text-center max-w-md">
@@ -108,6 +119,7 @@ export default function ChatPage(): ReactElement | null {
           <InputBar
             onSend={handleSendMessage}
             disabled={isSending || isCreating}
+            sidebarOpen={sidebarOpen}
           />
         </main>
       </div>

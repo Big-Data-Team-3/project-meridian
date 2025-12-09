@@ -10,6 +10,7 @@ import type {
   LoginCredentials,
   RegisterCredentials,
 } from '@/types';
+import { STORAGE_KEYS } from '@/lib/storage';
 
 // Backend API URL - defaults to localhost:8000 for local development
 const BACKEND_API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_API_URL || 'http://localhost:8000';
@@ -21,7 +22,13 @@ class ApiClient {
   constructor(baseUrl: string = BACKEND_API_URL) {
     this.baseUrl = baseUrl;
     if (typeof window !== 'undefined') {
-      this.token = localStorage.getItem('meridian-token');
+      // Restore token from localStorage on initialization
+      try {
+        const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+        this.token = storedToken ? JSON.parse(storedToken) : null;
+      } catch {
+        this.token = null;
+      }
     }
   }
 
@@ -87,10 +94,14 @@ class ApiClient {
 
   setToken(token: string | null): void {
     this.token = token;
-    if (token && typeof window !== 'undefined') {
-      localStorage.setItem('meridian-token', token);
-    } else if (typeof window !== 'undefined') {
-      localStorage.removeItem('meridian-token');
+    if (typeof window !== 'undefined') {
+      if (token) {
+        // Store token using the same storage utility as AuthContext
+        // Note: storage.set() uses JSON.stringify, so we need to match that
+        localStorage.setItem(STORAGE_KEYS.TOKEN, JSON.stringify(token));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+      }
     }
   }
 

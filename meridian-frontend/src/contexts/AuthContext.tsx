@@ -21,16 +21,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored user and token
-    const storedUser = storage.get<User>(STORAGE_KEYS.USER);
-    const token = storage.get<string>(STORAGE_KEYS.TOKEN);
-    
-    if (storedUser && token) {
-      apiClient.setToken(token);
-      setUser(storedUser);
-      setIsAuthenticated(true);
-    }
-    setIsLoading(false);
+    // Check for stored user and token on mount
+    const restoreAuth = () => {
+      try {
+        const storedUser = storage.get<User>(STORAGE_KEYS.USER);
+        const token = storage.get<string>(STORAGE_KEYS.TOKEN);
+        
+        if (storedUser && token) {
+          console.log('🔄 Restoring authentication from storage');
+          apiClient.setToken(token);
+          setUser(storedUser);
+          setIsAuthenticated(true);
+          console.log('✅ Authentication restored:', { email: storedUser.email, hasToken: !!token });
+        } else {
+          console.log('ℹ️ No stored authentication found');
+          setIsAuthenticated(false);
+        }
+      } catch (error) {
+        console.error('❌ Error restoring authentication:', error);
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    restoreAuth();
   }, []);
 
   const login = useCallback(async (credentials: LoginCredentials): Promise<void> => {
