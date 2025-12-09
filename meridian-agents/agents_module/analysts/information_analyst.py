@@ -1,4 +1,5 @@
 from agents import Agent, Runner
+from agents_module.utils.runner_helper import run_agent_sync
 from agents_module.utils.news_data_tools import get_news, get_global_news
 
 
@@ -99,8 +100,8 @@ def create_information_analyst(model: str = "gpt-4o-mini"):
         
         # Run the agent using Runner
         try:
-            # Use Runner.run_sync for synchronous execution
-            result = Runner.run_sync(agent, user_message)
+            # Use helper to run in isolated thread to avoid event loop conflicts
+            result = run_agent_sync(agent, user_message)
             
             # Extract the report from the result
             report = ""

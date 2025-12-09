@@ -1,4 +1,5 @@
 from agents import Agent, Runner
+from agents_module.utils.runner_helper import run_agent_sync
 import functools
 import time
 import json
@@ -52,7 +53,8 @@ Leverage these insights to make an informed and strategic decision."""
         )
 
         try:
-            result = Runner.run_sync(agent, user_message)
+            # Use helper to run in isolated thread to avoid event loop conflicts
+            result = run_agent_sync(agent, user_message)
             
             # Extract response
             if hasattr(result, 'final_output'):

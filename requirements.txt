@@ -50,3 +50,4 @@ openai-agents==0.6.2
 fastapi
 uvicorn[standard]
 httpx
+nest-asyncio
