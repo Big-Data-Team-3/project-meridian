@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE Streaming Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .event { border: 1px solid #ccc; margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .start { background-color: #e8f5e8; }
+        .progress { background-color: #e8f4fd; }
+        .agent_update { background-color: #fff3cd; }
+        .complete { background-color: #d4edda; }
+        .error { background-color: #f8d7da; }
+        #startBtn { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        #startBtn:disabled { background: #ccc; }
+    </style>
+</head>
+<body>
+    <h1>🚀 SSE Agent Analysis Streaming Test</h1>
+
+    <button id="startBtn">Start Agent Analysis</button>
+
+    <div id="events"></div>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const eventsDiv = document.getElementById('events');
+
+        startBtn.addEventListener('click', startAnalysis);
+
+        function startAnalysis() {
+            startBtn.disabled = true;
+            startBtn.textContent = 'Analysis Running...';
+
+            // Clear previous events
+            eventsDiv.innerHTML = '';
+
+            // Create EventSource for SSE
+            const eventSource = new EventSource('/api/streaming/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    company_name: 'AAPL',
+                    trade_date: '2024-12-19'
+                })
+            });
+
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    displayEvent(data);
+                } catch (e) {
+                    console.error('Failed to parse event data:', event.data);
+                }
+            };
+
+            eventSource.onerror = function(error) {
+                console.error('SSE Error:', error);
+                displayEvent({
+                    event_type: 'error',
+                    message: 'Connection error occurred',
+                    timestamp: new Date().toISOString()
+                });
+                eventSource.close();
+                resetButton();
+            };
+
+            // Close connection when analysis completes
+            eventSource.addEventListener('complete', () => {
+                eventSource.close();
+                resetButton();
+            });
+        }
+
+        function displayEvent(data) {
+            const eventDiv = document.createElement('div');
+            eventDiv.className = `event ${data.event_type}`;
+
+            const timestamp = new Date(data.timestamp).toLocaleTimeString();
+
+            eventDiv.innerHTML = `
+                <strong>${data.event_type.toUpperCase()}</strong> - ${timestamp}<br>
+                <strong>Message:</strong> ${data.message}<br>
+                ${data.agent_name ? `<strong>Agent:</strong> ${data.agent_name}<br>` : ''}
+                ${data.progress !== undefined ? `<strong>Progress:</strong> ${data.progress}%<br>` : ''}
+                ${data.data ? `<strong>Data:</strong> <pre>${JSON.stringify(data.data, null, 2)}</pre>` : ''}
+            `;
+
+            eventsDiv.appendChild(eventDiv);
+            eventsDiv.scrollTop = eventsDiv.scrollHeight;
+        }
+
+        function resetButton() {
+            startBtn.disabled = false;
+            startBtn.textContent = 'Start Agent Analysis';
+        }
+    </script>
+</body>
+</html>
