@@ -345,14 +345,37 @@ async def stream_agent_analysis(
                                         # Capture final response from complete events
                                         if event_data.get("event_type") in ["complete", "analysis_complete"]:
                                             if event_data.get("data") and isinstance(event_data["data"], dict):
-                                                # Try to extract response text from various possible fields
+                                                data = event_data["data"]
+                                                # Extract full response text - prefer "response" field which contains full analysis
                                                 final_response_text = (
-                                                    event_data["data"].get("response") or
-                                                    event_data["data"].get("decision") or
-                                                    event_data["data"].get("summary") or
-                                                    event_data.get("message", "")
+                                                    data.get("response") or  # Full analysis response
+                                                    data.get("trader_investment_plan") or  # Trader's full plan
+                                                    data.get("investment_plan") or  # Investment plan
+                                                    data.get("judge_decision") or  # Judge decision
+                                                    data.get("decision") or  # Just the decision
+                                                    event_data.get("message", "")  # Fallback to message
                                                 )
-                                    except (json.JSONDecodeError, KeyError):
+                                                
+                                                # If we only got the decision, try to build a more complete response
+                                                if final_response_text and final_response_text in ["BUY", "SELL", "HOLD"]:
+                                                    # Build a comprehensive response from available data
+                                                    reports = data.get("reports", {})
+                                                    response_parts = []
+                                                    
+                                                    if reports.get("market"):
+                                                        response_parts.append(f"**Market Analysis:**\n{reports['market'][:500]}...")
+                                                    if reports.get("fundamentals"):
+                                                        response_parts.append(f"**Fundamentals:**\n{reports['fundamentals'][:500]}...")
+                                                    
+                                                    if response_parts:
+                                                        final_response_text = "\n\n".join(response_parts) + f"\n\n**Final Decision: {final_response_text}**"
+                                                    else:
+                                                        # At minimum, provide a meaningful response
+                                                        final_response_text = f"Based on comprehensive analysis, the recommended action is: **{final_response_text}**"
+                                                
+                                                logger.info(f"Extracted final response (length: {len(final_response_text) if final_response_text else 0})")
+                                    except (json.JSONDecodeError, KeyError) as e:
+                                        logger.debug(f"Could not parse event data: {e}")
                                         pass  # Continue streaming even if parsing fails
                                     
                                     yield line + "\n"
