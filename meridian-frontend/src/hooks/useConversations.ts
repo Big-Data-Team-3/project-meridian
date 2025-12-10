@@ -20,13 +20,16 @@ export function useConversations() {
         throw new Error(response.error || 'Failed to fetch conversations');
       }
       // Map backend threads to frontend conversations
-      return (response.data.threads || []).map((thread) => ({
+      const conversations = (response.data.threads || []).map((thread) => ({
         id: thread.thread_id,
         title: thread.title || 'New Conversation',
         createdAt: new Date(thread.created_at),
         updatedAt: new Date(thread.updated_at),
-        messageCount: 0, // Will be updated when messages are loaded
+        messageCount: typeof thread.message_count === 'number' ? thread.message_count : 0,
       }));
+
+      // Sort by most recently updated first
+      return conversations.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     },
     enabled: isAuthenticated && !authLoading, // Only fetch when authenticated
     staleTime: 5 * 60 * 1000, // 5 minutes

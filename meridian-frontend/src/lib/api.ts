@@ -89,6 +89,14 @@ class ApiClient {
           if (typeof window !== 'undefined') {
             // Clear user data as well
             localStorage.removeItem(STORAGE_KEYS.USER);
+            // Notify the app so it can surface a banner/toast
+            window.dispatchEvent(
+              new CustomEvent('auth-expired', {
+                detail: {
+                  message: data?.detail || data?.error || data?.message || 'Session expired. Please sign in again.',
+                },
+              })
+            );
             // Optionally redirect to login page
             // window.location.href = '/';
           }

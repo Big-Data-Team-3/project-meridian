@@ -31,6 +31,8 @@ export interface GetConversationsResponse {
     created_at: string;
     updated_at: string;
     user_id: string | null;
+    message_count?: number;
+    last_message_at?: string | null;
   }>;
 }
 
@@ -52,6 +54,8 @@ export interface CreateConversationResponse {
   created_at: string;
   updated_at: string;
   user_id: string | null;
+  message_count?: number;
+  last_message_at?: string | null;
 }
 
 export interface HealthCheckResponse {
