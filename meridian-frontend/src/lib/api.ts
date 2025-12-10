@@ -7,8 +7,6 @@ import type {
   GetMessagesResponse,
   CreateConversationResponse,
   HealthCheckResponse,
-  LoginCredentials,
-  RegisterCredentials,
 } from '@/types';
 import { STORAGE_KEYS } from '@/lib/storage';
 
@@ -107,24 +105,6 @@ class ApiClient {
 
   async healthCheck(): Promise<ApiResponse<HealthCheckResponse>> {
     return this.request<HealthCheckResponse>('/api/health');
-  }
-
-  async login(
-    credentials: LoginCredentials
-  ): Promise<ApiResponse<LoginResponse>> {
-    return this.request<LoginResponse>('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    });
-  }
-
-  async register(
-    credentials: RegisterCredentials
-  ): Promise<ApiResponse<LoginResponse>> {
-    return this.request<LoginResponse>('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    });
   }
 
   async logout(): Promise<ApiResponse<{ message: string }>> {

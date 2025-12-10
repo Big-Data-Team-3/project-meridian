@@ -6,10 +6,9 @@ import json
 import uuid
 import logging
 from typing import Optional
-from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Header, Depends
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 # Google Auth imports (optional - will work without it for mock mode)
 try:
@@ -26,31 +25,6 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # Mock data storage (in-memory for development)
 mock_users = {}
 active_tokens: dict[str, str] = {}  # token -> user_id
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-    
-    @field_validator('email')
-    @classmethod
-    def validate_email(cls, v: str) -> str:
-        if '@' not in v:
-            raise ValueError('Invalid email format')
-        return v.lower()
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    name: Optional[str] = None
-    
-    @field_validator('email')
-    @classmethod
-    def validate_email(cls, v: str) -> str:
-        if '@' not in v:
-            raise ValueError('Invalid email format')
-        return v.lower()
 
 
 class UserResponse(BaseModel):
@@ -120,47 +94,6 @@ def require_auth(authorization: Optional[str] = Header(None)) -> dict:
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
-
-
-@router.post("/register", response_model=LoginResponse, status_code=200)
-async def register(request: RegisterRequest):
-    """Register a new user"""
-    if request.email in mock_users:
-        raise HTTPException(status_code=400, detail="User already exists")
-    
-    user_id = f"user-{uuid.uuid4().hex[:8]}"
-    new_user = {
-        "id": user_id,
-        "email": request.email,
-        "name": request.name,
-        "password": request.password  # In production, hash this
-    }
-    mock_users[request.email] = new_user
-    
-    token = generate_token()
-    active_tokens[token] = user_id
-    
-    return {
-        "user": UserResponse(**new_user),
-        "token": token
-    }
-
-
-@router.post("/login", response_model=LoginResponse, status_code=200)
-async def login(request: LoginRequest):
-    """Login user"""
-    user = mock_users.get(request.email)
-    
-    if not user or user["password"] != request.password:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    token = generate_token()
-    active_tokens[token] = user["id"]
-    
-    return {
-        "user": UserResponse(**{k: v for k, v in user.items() if k != "password"}),
-        "token": token
-    }
 
 
 @router.post("/logout", status_code=200)
