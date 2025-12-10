@@ -1,13 +1,11 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import type { User, AuthState, LoginCredentials, RegisterCredentials } from '@/types';
+import type { User, AuthState } from '@/types';
 import { apiClient } from '@/lib/api';
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 
 interface AuthContextType extends AuthState {
-  login: (credentials: LoginCredentials) => Promise<void>;
-  register: (credentials: RegisterCredentials) => Promise<void>;
   loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -46,46 +44,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     restoreAuth();
-  }, []);
-
-  const login = useCallback(async (credentials: LoginCredentials): Promise<void> => {
-    setIsLoading(true);
-    try {
-      const response = await apiClient.login(credentials);
-      if (response.error || !response.data) {
-        throw new Error(response.error || 'Login failed');
-      }
-      const { user, token } = response.data;
-      apiClient.setToken(token);
-      storage.set(STORAGE_KEYS.USER, user);
-      storage.set(STORAGE_KEYS.TOKEN, token);
-      setUser(user);
-      setIsAuthenticated(true);
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const register = useCallback(async (credentials: RegisterCredentials): Promise<void> => {
-    setIsLoading(true);
-    try {
-      const response = await apiClient.register(credentials);
-      if (response.error || !response.data) {
-        throw new Error(response.error || 'Registration failed');
-      }
-      const { user, token } = response.data;
-      apiClient.setToken(token);
-      storage.set(STORAGE_KEYS.USER, user);
-      storage.set(STORAGE_KEYS.TOKEN, token);
-      setUser(user);
-      setIsAuthenticated(true);
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
   }, []);
 
   const logout = useCallback(async (): Promise<void> => {
@@ -156,8 +114,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isAuthenticated,
         isLoading,
-        login,
-        register,
         loginWithGoogle,
         logout,
         refreshUser,
