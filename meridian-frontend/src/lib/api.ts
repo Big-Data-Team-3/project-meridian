@@ -163,41 +163,75 @@ class ApiClient {
     return response;
   }
 
+  /**
+   * Send a chat message to a thread and receive an assistant response.
+   * Uses the new backend API: POST /api/chat
+   */
   async sendMessage(
     request: SendMessageRequest
   ): Promise<ApiResponse<SendMessageResponse>> {
-    return this.request<SendMessageResponse>('/api/chat/message', {
+    if (!request.conversationId && !request.thread_id) {
+      return {
+        data: {} as SendMessageResponse,
+        error: 'Thread ID is required',
+        status: 400,
+      };
+    }
+    
+    // Map conversationId to thread_id for backend API
+    const backendRequest = {
+      thread_id: request.conversationId || request.thread_id,
+      message: request.message,
+    };
+    
+    return this.request<SendMessageResponse>('/api/chat', {
       method: 'POST',
-      body: JSON.stringify(request),
+      body: JSON.stringify(backendRequest),
     });
   }
 
+  /**
+   * Get all threads (conversations).
+   * Uses the new backend API: GET /api/threads
+   */
   async getConversations(): Promise<ApiResponse<GetConversationsResponse>> {
-    return this.request<GetConversationsResponse>('/api/chat/conversations');
+    return this.request<GetConversationsResponse>('/api/threads');
   }
 
+  /**
+   * Get messages for a thread.
+   * Uses the new backend API: GET /api/threads/{thread_id}/messages
+   */
   async getMessages(
     conversationId: string
   ): Promise<ApiResponse<GetMessagesResponse>> {
     return this.request<GetMessagesResponse>(
-      `/api/chat/conversations/${conversationId}/messages`
+      `/api/threads/${conversationId}/messages`
     );
   }
 
+  /**
+   * Create a new thread (conversation).
+   * Uses the new backend API: POST /api/threads
+   */
   async createConversation(
     title?: string
   ): Promise<ApiResponse<CreateConversationResponse>> {
-    return this.request<CreateConversationResponse>('/api/chat/conversations', {
+    return this.request<CreateConversationResponse>('/api/threads', {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title: title || null }),
     });
   }
 
+  /**
+   * Delete a thread (conversation).
+   * Uses the new backend API: DELETE /api/threads/{thread_id}
+   */
   async deleteConversation(
     conversationId: string
-  ): Promise<ApiResponse<{ message: string }>> {
-    return this.request<{ message: string }>(
-      `/api/chat/conversations/${conversationId}`,
+  ): Promise<ApiResponse<{ success: boolean; thread_id: string }>> {
+    return this.request<{ success: boolean; thread_id: string }>(
+      `/api/threads/${conversationId}`,
       {
         method: 'DELETE',
       }

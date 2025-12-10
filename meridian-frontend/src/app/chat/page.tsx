@@ -17,10 +17,10 @@ export default function ChatPage(): ReactElement | null {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { activeConversationId, setActiveConversationId } = useConversation();
-  const { messages, sendMessage, isSending, isStreaming, isLoading } = useChat(
+  const { messages, sendMessage, isSending, isStreaming, isLoading, error: chatError } = useChat(
     activeConversationId
   );
-  const { createConversation, isCreating } = useConversations();
+  const { createConversation, isCreating, error: conversationsError } = useConversations();
   const [sidebarOpen, setSidebarOpen] = useState(true); // Default to open on desktop
 
   useEffect(() => {
@@ -47,6 +47,7 @@ export default function ChatPage(): ReactElement | null {
   };
 
   const handleSendMessage = async (message: string): Promise<void> => {
+    try {
     let conversationId = activeConversationId;
     
     if (!conversationId) {
@@ -54,11 +55,16 @@ export default function ChatPage(): ReactElement | null {
       conversationId = await handleNewChat();
       if (!conversationId) {
         console.error('Failed to create conversation');
+          alert('Failed to create conversation. Please try again.');
         return;
       }
     }
     
     sendMessage(message);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      alert('Failed to send message. Please try again.');
+    }
   };
 
   if (authLoading) {
@@ -92,6 +98,15 @@ export default function ChatPage(): ReactElement | null {
           )}
           style={sidebarOpen ? { width: 'calc(100% - 260px)' } : { width: '100%' }}
         >
+          {/* Error Display */}
+          {(chatError || conversationsError) && (
+            <div className="mx-4 mt-4 p-4 bg-error/10 border border-error/20 rounded-lg">
+              <p className="text-error text-sm">
+                {chatError?.message || conversationsError?.message || 'An error occurred'}
+              </p>
+            </div>
+          )}
+
           {messages.length === 0 && !isLoading ? (
             <div className="flex-1 flex items-center justify-center px-4">
               <div className="text-center max-w-md">
@@ -111,6 +126,10 @@ export default function ChatPage(): ReactElement | null {
                   {isCreating ? 'Creating...' : 'Start New Conversation'}
                 </Button>
               </div>
+            </div>
+          ) : isLoading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-text-secondary">Loading messages...</div>
             </div>
           ) : (
             <MessageList messages={messages} isStreaming={isStreaming || isSending} />
