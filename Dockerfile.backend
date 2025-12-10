@@ -13,17 +13,15 @@ WORKDIR /app
 # Copy requirements file
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir \
-    fastapi \
-    uvicorn[standard] \
-    httpx
+# Install Python dependencies from requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source code
 COPY meridian-backend/ ./meridian-backend/
 
-# Set Python path
-ENV PYTHONPATH=/app
+# Set Python path to include meridian-backend directory
+ENV PYTHONPATH=/app/meridian-backend:/app
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash appuser && \
@@ -37,6 +35,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# Run the application
-CMD ["python", "-m", "uvicorn", "meridian-backend.server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run migrations and start the server
+# Note: Migrations will fail gracefully if tables already exist
+CMD sh -c "cd meridian-backend && python database/run_migrations.py || echo 'Migrations skipped or already applied'; python -m uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"
 

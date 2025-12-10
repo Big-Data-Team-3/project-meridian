@@ -14,7 +14,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, onClose, onNewChat }: SidebarProps): ReactElement {
-  const { conversations, isLoading, deleteConversation, isDeleting } = useConversations();
+  const { conversations, isLoading, deleteConversation, isDeleting, error } = useConversations();
   const { activeConversationId, setActiveConversationId } = useConversation();
 
   const handleConversationClick = (id: string): void => {
@@ -75,6 +75,10 @@ export function Sidebar({ isOpen, onClose, onNewChat }: SidebarProps): ReactElem
             {isLoading ? (
               <div className="text-text-secondary text-sm text-center py-8">
                 Loading conversations...
+              </div>
+            ) : error ? (
+              <div className="text-error text-sm text-center py-8 px-2">
+                Failed to load conversations. Please refresh.
               </div>
             ) : conversations.length === 0 ? (
               <div className="text-text-secondary text-sm text-center py-8">

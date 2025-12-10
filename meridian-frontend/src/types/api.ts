@@ -14,24 +14,44 @@ export interface LoginResponse {
 export interface SendMessageRequest {
   message: string;
   conversationId?: string;
+  thread_id?: string; // Backend uses thread_id
 }
 
 export interface SendMessageResponse {
-  message: Message;
-  conversationId: string;
+  thread_id: string;
+  message_id: string;
+  assistant_message_id: string;
+  response: string;
 }
 
 export interface GetConversationsResponse {
-  conversations: Conversation[];
+  threads: Array<{
+    thread_id: string;
+    title: string | null;
+    created_at: string;
+    updated_at: string;
+    user_id: string | null;
+  }>;
 }
 
 export interface GetMessagesResponse {
-  messages: Message[];
-  conversationId: string;
+  thread_id: string;
+  messages: Array<{
+    message_id: string;
+    thread_id: string;
+    role: string;
+    content: string;
+    timestamp: string;
+    metadata: any;
+  }>;
 }
 
 export interface CreateConversationResponse {
-  conversation: Conversation;
+  thread_id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  user_id: string | null;
 }
 
 export interface HealthCheckResponse {

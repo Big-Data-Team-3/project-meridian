@@ -17,7 +17,14 @@ export function useConversations() {
       if (response.error || !response.data) {
         throw new Error(response.error || 'Failed to fetch conversations');
       }
-      return response.data.conversations;
+      // Map backend threads to frontend conversations
+      return (response.data.threads || []).map((thread) => ({
+        id: thread.thread_id,
+        title: thread.title || 'New Conversation',
+        createdAt: new Date(thread.created_at),
+        updatedAt: new Date(thread.updated_at),
+        messageCount: 0, // Will be updated when messages are loaded
+      }));
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
@@ -28,7 +35,15 @@ export function useConversations() {
       if (response.error || !response.data) {
         throw new Error(response.error || 'Failed to create conversation');
       }
-      return response.data.conversation;
+      // Map backend thread to frontend conversation
+      const thread = response.data;
+      return {
+        id: thread.thread_id,
+        title: thread.title || 'New Conversation',
+        createdAt: new Date(thread.created_at),
+        updatedAt: new Date(thread.updated_at),
+        messageCount: 0,
+      };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });

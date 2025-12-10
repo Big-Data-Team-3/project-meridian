@@ -117,18 +117,18 @@ class TradingAgentsGraph:
         
         def _run_graph():
             """Run graph synchronously in thread pool."""
-            if self.debug:
-                # Debug mode with tracing
-                trace = []
-                for chunk in self.graph.stream(init_agent_state, **args):
-                    if len(chunk["messages"]) == 0:
-                        pass
-                    else:
-                        chunk["messages"][-1].pretty_print()
-                        trace.append(chunk)
+        if self.debug:
+            # Debug mode with tracing
+            trace = []
+            for chunk in self.graph.stream(init_agent_state, **args):
+                if len(chunk["messages"]) == 0:
+                    pass
+                else:
+                    chunk["messages"][-1].pretty_print()
+                    trace.append(chunk)
                 return trace[-1]
-            else:
-                # Standard mode without tracing
+        else:
+            # Standard mode without tracing
                 return self.graph.invoke(init_agent_state, **args)
 
         # Run in thread pool to avoid event loop conflicts
