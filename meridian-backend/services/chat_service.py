@@ -61,17 +61,11 @@ class ChatService:
                 content=user_message
             )
             
-            # 2. Get conversation context (last N messages)
+            # 2. Get conversation context (last N messages, already includes the newly saved user message)
             conversation_context = await self.message_service.get_conversation_context(
                 thread_id=thread_id,
                 max_messages=self.config.MAX_CONVERSATION_HISTORY
             )
-            
-            # Add current user message to context
-            conversation_context.append({
-                "role": "user",
-                "content": user_message
-            })
             
             # 3. Format messages for OpenAI
             openai_messages = self.openai_service.format_messages_for_openai(conversation_context)
