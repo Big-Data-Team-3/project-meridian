@@ -1,12 +1,14 @@
 """
 Chat API endpoints.
+All endpoints require authentication and are user-scoped via thread ownership.
 """
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from models.chat import ChatRequest, ChatResponse
 from services.chat_service import ChatService
+from api.auth import require_auth
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +27,21 @@ def get_chat_service() -> ChatService:
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    current_user: dict = Depends(require_auth)
+):
     """
     Send a chat message to a thread and receive an assistant response.
+    Only processes messages for threads owned by the authenticated user.
     
     This endpoint:
-    1. Saves the user message to the database
-    2. Retrieves conversation context (last N messages)
-    3. Calls OpenAI API with the conversation context
-    4. Saves the assistant response to the database
-    5. Updates the thread's updated_at timestamp
+    1. Verifies thread ownership
+    2. Saves the user message to the database
+    3. Retrieves conversation context (last N messages)
+    4. Calls OpenAI API with the conversation context
+    5. Saves the assistant response to the database
+    6. Updates the thread's updated_at timestamp
     
     Args:
         request: ChatRequest with thread_id and message
@@ -43,7 +50,8 @@ async def chat(request: ChatRequest):
         ChatResponse with message IDs and assistant response
     
     Raises:
-        404: If thread not found
+        401: If not authenticated
+        404: If thread not found or not owned by user (to avoid information leakage)
         502: If OpenAI API error
         503: If database error
     """
@@ -51,7 +59,8 @@ async def chat(request: ChatRequest):
         service = get_chat_service()
         result = await service.process_chat_message(
             thread_id=request.thread_id,
-            user_message=request.message
+            user_message=request.message,
+            user_id=current_user["id"]
         )
         return ChatResponse(**result)
     except Exception as e:

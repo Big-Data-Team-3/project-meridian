@@ -1,10 +1,12 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
 import type { Message, SendMessageRequest, GetMessagesResponse } from '@/types';
 
 export function useChat(conversationId: string | null) {
   const queryClient = useQueryClient();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [isStreaming, setIsStreaming] = useState(false);
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
 
@@ -32,7 +34,7 @@ export function useChat(conversationId: string | null) {
       }));
       return { messages, conversationId: response.data.thread_id };
     },
-    enabled: !!conversationId,
+    enabled: !!conversationId && isAuthenticated && !authLoading, // Only fetch when authenticated
     staleTime: 2 * 60 * 1000, // 2 minutes
   });
 

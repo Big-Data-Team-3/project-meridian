@@ -1,9 +1,10 @@
 """
 Thread management API endpoints.
+All endpoints require authentication and are user-scoped.
 """
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 
 from models.thread import (
     ThreadCreateRequest,
@@ -13,6 +14,7 @@ from models.thread import (
 )
 from services.thread_service import ThreadService
 from api.error_handling import handle_api_error
+from api.auth import require_auth
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +33,27 @@ def get_thread_service() -> ThreadService:
 
 
 @router.post("", response_model=ThreadResponse, status_code=201)
-async def create_thread(request: ThreadCreateRequest, http_request: Request):
+async def create_thread(
+    request: ThreadCreateRequest,
+    http_request: Request,
+    current_user: dict = Depends(require_auth)
+):
     """
-    Create a new conversation thread.
+    Create a new conversation thread for the authenticated user.
     
     Returns:
         ThreadResponse with thread_id, title, timestamps
+    
+    Raises:
+        401: If not authenticated
     """
     request_id = getattr(http_request.state, "request_id", None)
     try:
         service = get_thread_service()
-        thread = await service.create_thread(title=request.title)
+        thread = await service.create_thread(
+            title=request.title,
+            user_id=current_user["id"]
+        )
         return ThreadResponse(**thread)
     except HTTPException:
         raise
@@ -50,28 +62,43 @@ async def create_thread(request: ThreadCreateRequest, http_request: Request):
 
 
 @router.get("", response_model=ThreadListResponse)
-async def list_threads(http_request: Request):
+async def list_threads(
+    http_request: Request,
+    current_user: dict = Depends(require_auth)
+):
     """
-    List all conversation threads, ordered by last activity (most recent first).
+    List all conversation threads for the authenticated user, 
+    ordered by last activity (most recent first).
     
     Returns:
         ThreadListResponse with list of threads
+    
+    Raises:
+        401: If not authenticated
     """
     request_id = getattr(http_request.state, "request_id", None)
     try:
+        logger.info(f"Listing threads for user: {current_user.get('id')}, email: {current_user.get('email')}")
         service = get_thread_service()
-        threads = await service.list_threads()
+        threads = await service.list_threads(user_id=current_user["id"])
+        logger.info(f"Found {len(threads)} threads for user {current_user.get('id')}")
         return ThreadListResponse(threads=threads)
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error in list_threads endpoint: {e}", exc_info=True)
+        logger.error(f"User ID: {current_user.get('id') if current_user else 'None'}")
         raise handle_api_error(e, "list_threads", request_id=request_id)
 
 
 @router.get("/{thread_id}", response_model=ThreadResponse)
-async def get_thread(thread_id: str, http_request: Request):
+async def get_thread(
+    thread_id: str,
+    http_request: Request,
+    current_user: dict = Depends(require_auth)
+):
     """
-    Get a specific thread by ID.
+    Get a specific thread by ID for the authenticated user.
     
     Args:
         thread_id: Thread identifier
@@ -80,12 +107,13 @@ async def get_thread(thread_id: str, http_request: Request):
         ThreadResponse with thread data
     
     Raises:
-        404: If thread not found
+        401: If not authenticated
+        404: If thread not found or not owned by user (to avoid information leakage)
     """
     request_id = getattr(http_request.state, "request_id", None)
     try:
         service = get_thread_service()
-        thread = await service.get_thread(thread_id)
+        thread = await service.get_thread(thread_id, user_id=current_user["id"])
         if not thread:
             raise HTTPException(
                 status_code=404,
@@ -99,9 +127,13 @@ async def get_thread(thread_id: str, http_request: Request):
 
 
 @router.delete("/{thread_id}", response_model=ThreadDeleteResponse)
-async def delete_thread(thread_id: str, http_request: Request):
+async def delete_thread(
+    thread_id: str,
+    http_request: Request,
+    current_user: dict = Depends(require_auth)
+):
     """
-    Delete a thread and all its messages (cascade delete).
+    Delete a thread and all its messages (cascade delete) for the authenticated user.
     
     Args:
         thread_id: Thread identifier
@@ -110,12 +142,13 @@ async def delete_thread(thread_id: str, http_request: Request):
         ThreadDeleteResponse with success status
     
     Raises:
-        404: If thread not found
+        401: If not authenticated
+        404: If thread not found or not owned by user (to avoid information leakage)
     """
     request_id = getattr(http_request.state, "request_id", None)
     try:
         service = get_thread_service()
-        deleted = await service.delete_thread(thread_id)
+        deleted = await service.delete_thread(thread_id, user_id=current_user["id"])
         if not deleted:
             raise HTTPException(
                 status_code=404,

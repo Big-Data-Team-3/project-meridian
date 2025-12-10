@@ -86,21 +86,22 @@ class ThreadService:
             row = result.fetchone()
             return row[0] if row else 1
     
-    async def create_thread(self, title: Optional[str] = None, user_id: Optional[str] = None) -> dict:
+    async def create_thread(self, title: Optional[str] = None, user_id: str = None) -> dict:
         """
         Create a new conversation (thread) in meridian schema.
         
         Args:
             title: Optional conversation title
-            user_id: Optional user ID (UUID). If not provided, uses a default user.
+            user_id: Required user ID (UUID). Must be provided.
         
         Returns:
             Dictionary with thread data (using thread_id for API compatibility)
+        
+        Raises:
+            ValueError: If user_id is not provided
         """
-        # Use default user if not provided (for testing)
-        # In production, user_id should always be provided
         if not user_id:
-            user_id = self._get_or_create_default_user()
+            raise ValueError("user_id is required to create a thread")
         
         # Get next sequence number
         sequence_number = self._get_next_sequence_number(user_id)
@@ -148,26 +149,35 @@ class ThreadService:
             logger.error(f"Failed to create conversation: {e}", exc_info=True)
             raise Exception(f"Failed to create conversation: {str(e)}")
     
-    async def get_thread(self, thread_id: str) -> Optional[dict]:
+    async def get_thread(self, thread_id: str, user_id: str = None) -> Optional[dict]:
         """
-        Get a conversation by ID (thread_id maps to conversation_id).
+        Get a conversation by ID (thread_id maps to conversation_id) for a specific user.
+        Returns None if thread doesn't exist or doesn't belong to the user (for security).
         
         Args:
             thread_id: Conversation identifier (UUID string)
+            user_id: Required user ID (UUID). Used to verify ownership.
         
         Returns:
-            Conversation data or None if not found
+            Conversation data or None if not found or not owned by user
         """
+        if not user_id:
+            raise ValueError("user_id is required to get a thread")
+        
         query = text("""
             SELECT conversation_id, user_id, title, sequence_number, created_at, updated_at, 
                    message_count, last_message_at, is_archived, is_pinned
             FROM meridian.conversations
             WHERE conversation_id = :conversation_id
+              AND user_id = :user_id
         """)
         
         def _get_thread():
             with self.db_client.get_connection() as conn:
-                result = conn.execute(query, {"conversation_id": thread_id})
+                result = conn.execute(query, {
+                    "conversation_id": thread_id,
+                    "user_id": user_id
+                })
                 row = result.fetchone()
                 if not row:
                     return None
@@ -189,38 +199,33 @@ class ThreadService:
             logger.error(f"Failed to get conversation {thread_id}: {e}", exc_info=True)
             raise Exception(f"Failed to get conversation: {str(e)}")
     
-    async def list_threads(self, user_id: Optional[str] = None, limit: int = 100) -> List[dict]:
+    async def list_threads(self, user_id: str = None, limit: int = 100) -> List[dict]:
         """
-        List all conversations, ordered by sequence (most recent first).
+        List all conversations for a specific user, ordered by sequence (most recent first).
         
         Args:
-            user_id: Optional user ID filter (UUID string)
+            user_id: Required user ID (UUID string). Must be provided.
             limit: Maximum number of conversations to return
         
         Returns:
             List of conversation dictionaries
+        
+        Raises:
+            ValueError: If user_id is not provided
         """
-        if user_id:
-            query = text("""
-                SELECT conversation_id, user_id, title, sequence_number, created_at, updated_at,
-                       message_count, last_message_at
-                FROM meridian.conversations
-                WHERE user_id = :user_id
-                  AND is_archived = FALSE
-                ORDER BY sequence_number ASC
-                LIMIT :limit
-            """)
-            params = {"user_id": user_id, "limit": limit}
-        else:
-            query = text("""
-                SELECT conversation_id, user_id, title, sequence_number, created_at, updated_at,
-                       message_count, last_message_at
-                FROM meridian.conversations
-                WHERE is_archived = FALSE
-                ORDER BY updated_at DESC, sequence_number ASC
-                LIMIT :limit
-            """)
-            params = {"limit": limit}
+        if not user_id:
+            raise ValueError("user_id is required to list threads")
+        
+        query = text("""
+            SELECT conversation_id, user_id, title, sequence_number, created_at, updated_at,
+                   message_count, last_message_at
+            FROM meridian.conversations
+            WHERE user_id = :user_id
+              AND is_archived = FALSE
+            ORDER BY sequence_number ASC
+            LIMIT :limit
+        """)
+        params = {"user_id": user_id, "limit": limit}
         
         def _list_threads():
             with self.db_client.get_connection() as conn:
@@ -246,34 +251,51 @@ class ThreadService:
             logger.error(f"Failed to list conversations: {e}", exc_info=True)
             raise Exception(f"Failed to list conversations: {str(e)}")
     
-    async def delete_thread(self, thread_id: str) -> bool:
+    async def delete_thread(self, thread_id: str, user_id: str = None) -> bool:
         """
-        Delete a conversation and all its messages (cascade delete).
+        Delete a conversation and all its messages (cascade delete) for a specific user.
+        Only deletes if the conversation belongs to the user.
         
         Args:
             thread_id: Conversation identifier (UUID string)
+            user_id: Required user ID (UUID). Used to verify ownership.
         
         Returns:
-            True if deleted, False if not found
+            True if deleted, False if not found or not owned by user
+        
+        Raises:
+            ValueError: If user_id is not provided
         """
-        # First check if conversation exists
-        conversation = await self.get_thread(thread_id)
+        if not user_id:
+            raise ValueError("user_id is required to delete a thread")
+        
+        # First check if conversation exists and belongs to user
+        conversation = await self.get_thread(thread_id, user_id=user_id)
         if not conversation:
             return False
         
-        query = text("DELETE FROM meridian.conversations WHERE conversation_id = :conversation_id")
+        query = text("""
+            DELETE FROM meridian.conversations 
+            WHERE conversation_id = :conversation_id
+              AND user_id = :user_id
+        """)
         
         def _delete_thread():
             with self.db_client.get_connection() as conn:
                 # Cascade delete will automatically delete messages
-                conn.execute(query, {"conversation_id": thread_id})
+                result = conn.execute(query, {
+                    "conversation_id": thread_id,
+                    "user_id": user_id
+                })
                 conn.commit()
-                return True
+                # Check if any row was deleted
+                return result.rowcount > 0
         
         try:
-            await asyncio.to_thread(_delete_thread)
-            logger.info(f"Conversation deleted: {thread_id}")
-            return True
+            deleted = await asyncio.to_thread(_delete_thread)
+            if deleted:
+                logger.info(f"Conversation deleted: {thread_id} by user {user_id}")
+            return deleted
         except Exception as e:
             logger.error(f"Failed to delete conversation {thread_id}: {e}", exc_info=True)
             raise Exception(f"Failed to delete conversation: {str(e)}")

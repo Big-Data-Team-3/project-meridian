@@ -1,9 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
 import type { Conversation, CreateConversationResponse } from '@/types';
 
 export function useConversations() {
   const queryClient = useQueryClient();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const {
     data,
@@ -26,6 +28,7 @@ export function useConversations() {
         messageCount: 0, // Will be updated when messages are loaded
       }));
     },
+    enabled: isAuthenticated && !authLoading, // Only fetch when authenticated
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
