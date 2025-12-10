@@ -101,8 +101,8 @@ class TradingAgentsGraph:
         # Set up the graph
         self.graph = self.graph_setup.setup_graph(selected_analysts)
 
-    def propagate(self, company_name, trade_date):
-        """Run the trading agents graph for a company on a specific date."""
+    async def propagate(self, company_name, trade_date):
+        """Run the trading agents graph for a company on a specific date (async)."""
 
         self.ticker = company_name
 
@@ -112,6 +112,11 @@ class TradingAgentsGraph:
         )
         args = self.propagator.get_graph_args()
 
+        # Run graph execution in thread pool to avoid event loop conflicts
+        import asyncio
+        
+        def _run_graph():
+            """Run graph synchronously in thread pool."""
         if self.debug:
             # Debug mode with tracing
             trace = []
@@ -121,11 +126,13 @@ class TradingAgentsGraph:
                 else:
                     chunk["messages"][-1].pretty_print()
                     trace.append(chunk)
-
-            final_state = trace[-1]
+                return trace[-1]
         else:
             # Standard mode without tracing
-            final_state = self.graph.invoke(init_agent_state, **args)
+                return self.graph.invoke(init_agent_state, **args)
+
+        # Run in thread pool to avoid event loop conflicts
+        final_state = await asyncio.to_thread(_run_graph)
 
         # Store current state for reflection
         self.curr_state = final_state

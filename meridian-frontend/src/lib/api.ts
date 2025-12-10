@@ -7,8 +7,6 @@ import type {
   GetMessagesResponse,
   CreateConversationResponse,
   HealthCheckResponse,
-  LoginCredentials,
-  RegisterCredentials,
 } from '@/types';
 import { STORAGE_KEYS } from '@/lib/storage';
 
@@ -36,6 +34,20 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
+    // Always check for token from localStorage on each request
+    // This ensures we have the latest token even if it was updated elsewhere
+    if (typeof window !== 'undefined') {
+      try {
+        const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+        if (storedToken) {
+          this.token = JSON.parse(storedToken);
+        }
+      } catch {
+        // If parsing fails, token might be invalid - clear it
+        this.token = null;
+      }
+    }
+
     const url = `${this.baseUrl}${endpoint}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -44,6 +56,9 @@ class ApiClient {
 
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
+      console.log(`🔑 API Request with auth token: ${options.method || 'GET'} ${url}`);
+    } else {
+      console.warn(`⚠️ API Request WITHOUT auth token: ${options.method || 'GET'} ${url}`);
     }
 
     try {
@@ -63,9 +78,22 @@ class ApiClient {
       if (!response.ok) {
         console.error(`❌ API Error Response:`, {
           status: response.status,
-          error: data.error || data.message,
+          error: data.error || data.message || data.detail,
           data,
         });
+        
+        // Handle 401 Unauthorized - clear token and redirect to login
+        if (response.status === 401) {
+          console.warn('⚠️ Unauthorized - clearing token');
+          this.setToken(null);
+          if (typeof window !== 'undefined') {
+            // Clear user data as well
+            localStorage.removeItem(STORAGE_KEYS.USER);
+            // Optionally redirect to login page
+            // window.location.href = '/';
+          }
+        }
+        
         return {
           data: data as T,
           error: data.error || data.message || data.detail || `HTTP ${response.status}`,
@@ -109,24 +137,6 @@ class ApiClient {
     return this.request<HealthCheckResponse>('/api/health');
   }
 
-  async login(
-    credentials: LoginCredentials
-  ): Promise<ApiResponse<LoginResponse>> {
-    return this.request<LoginResponse>('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    });
-  }
-
-  async register(
-    credentials: RegisterCredentials
-  ): Promise<ApiResponse<LoginResponse>> {
-    return this.request<LoginResponse>('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    });
-  }
-
   async logout(): Promise<ApiResponse<{ message: string }>> {
     return this.request<{ message: string }>('/api/auth/logout', {
       method: 'POST',
@@ -163,41 +173,75 @@ class ApiClient {
     return response;
   }
 
+  /**
+   * Send a chat message to a thread and receive an assistant response.
+   * Uses the new backend API: POST /api/chat
+   */
   async sendMessage(
     request: SendMessageRequest
   ): Promise<ApiResponse<SendMessageResponse>> {
-    return this.request<SendMessageResponse>('/api/chat/message', {
+    if (!request.conversationId && !request.thread_id) {
+      return {
+        data: {} as SendMessageResponse,
+        error: 'Thread ID is required',
+        status: 400,
+      };
+    }
+    
+    // Map conversationId to thread_id for backend API
+    const backendRequest = {
+      thread_id: request.conversationId || request.thread_id,
+      message: request.message,
+    };
+    
+    return this.request<SendMessageResponse>('/api/chat', {
       method: 'POST',
-      body: JSON.stringify(request),
+      body: JSON.stringify(backendRequest),
     });
   }
 
+  /**
+   * Get all threads (conversations).
+   * Uses the new backend API: GET /api/threads
+   */
   async getConversations(): Promise<ApiResponse<GetConversationsResponse>> {
-    return this.request<GetConversationsResponse>('/api/chat/conversations');
+    return this.request<GetConversationsResponse>('/api/threads');
   }
 
+  /**
+   * Get messages for a thread.
+   * Uses the new backend API: GET /api/threads/{thread_id}/messages
+   */
   async getMessages(
     conversationId: string
   ): Promise<ApiResponse<GetMessagesResponse>> {
     return this.request<GetMessagesResponse>(
-      `/api/chat/conversations/${conversationId}/messages`
+      `/api/threads/${conversationId}/messages`
     );
   }
 
+  /**
+   * Create a new thread (conversation).
+   * Uses the new backend API: POST /api/threads
+   */
   async createConversation(
     title?: string
   ): Promise<ApiResponse<CreateConversationResponse>> {
-    return this.request<CreateConversationResponse>('/api/chat/conversations', {
+    return this.request<CreateConversationResponse>('/api/threads', {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title: title || null }),
     });
   }
 
+  /**
+   * Delete a thread (conversation).
+   * Uses the new backend API: DELETE /api/threads/{thread_id}
+   */
   async deleteConversation(
     conversationId: string
-  ): Promise<ApiResponse<{ message: string }>> {
-    return this.request<{ message: string }>(
-      `/api/chat/conversations/${conversationId}`,
+  ): Promise<ApiResponse<{ success: boolean; thread_id: string }>> {
+    return this.request<{ success: boolean; thread_id: string }>(
+      `/api/threads/${conversationId}`,
       {
         method: 'DELETE',
       }

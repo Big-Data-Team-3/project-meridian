@@ -4,7 +4,7 @@
 
 # Authenticate with GCP
 gcloud auth login
-
+echo "Authenticated with GCP"
 # Get the project ID from the .env file, handling quotes and whitespace for the project ID
 PROJECT_ID=$(grep "^PROJECT_ID=" .env | cut -d '=' -f 2 | tr -d '"' | tr -d "'" | tr -d '[' | tr -d ']' | xargs)
 
@@ -77,18 +77,60 @@ else
     fi
 fi
 
-# Add IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL)
-if gcloud projects get-iam-policy $PROJECT_ID --format=yaml | grep -q "compute-engine-sa@$PROJECT_ID.iam.gserviceaccount.com"; then
-    echo "✅ IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL) already exists"
+# Create Cloud SQL Service Account (if it doesn't exist)
+if gcloud iam service-accounts describe cloud-sql-sa@$PROJECT_ID.iam.gserviceaccount.com --project=$PROJECT_ID &>/dev/null; then
+    echo "✅ Service Account for Cloud SQL already exists: cloud-sql-sa"
 else
-    echo "Adding IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL)..."
+    echo "Creating Service Account for Cloud SQL..."
+    if gcloud iam service-accounts create cloud-sql-sa \
+        --display-name="Cloud SQL Service Account" \
+        --description="Service account for Cloud SQL client connections" \
+        --project=$PROJECT_ID; then
+        echo "✅ Service Account for Cloud SQL created: cloud-sql-sa"
+    else
+        echo "❌ ERROR: Failed to create Cloud SQL service account"
+        echo "   Please check your permissions and try again"
+        exit 1
+    fi
+fi
+
+# Wait for all service accounts to be fully propagated in GCP before adding IAM bindings
+echo ""
+echo "⏳ Waiting 5 seconds for all service accounts to be fully propagated in GCP..."
+sleep 5
+echo "✅ Service account propagation wait complete"
+echo ""
+
+# Add IAM policy binding for Cloud SQL Service Account to Cloud SQL Client Role (roles/cloudsql.client) (for PostgreSQL)
+if gcloud projects get-iam-policy $PROJECT_ID --format=yaml | grep -q "cloud-sql-sa@$PROJECT_ID.iam.gserviceaccount.com.*roles/cloudsql.client"; then
+    echo "✅ IAM policy binding for Cloud SQL Service Account to Cloud SQL Client Role (roles/cloudsql.client) (for PostgreSQL) already exists"
+else
+    echo "Adding IAM policy binding for Cloud SQL Service Account to Cloud SQL Client Role (roles/cloudsql.client) (for PostgreSQL)..."
+    if gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:cloud-sql-sa@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/cloudsql.client"
+    then
+        echo "✅ IAM policy binding for Cloud SQL Service Account to Cloud SQL Client Role (roles/cloudsql.client) (for PostgreSQL) added"
+    else
+        echo "❌ ERROR: Failed to add IAM policy binding for Cloud SQL Service Account to Cloud SQL Client Role (roles/cloudsql.client) (for PostgreSQL)"
+        echo "   Please check your permissions and try again"
+        exit 1
+    fi
+fi
+
+
+# Add IAM policy binding for Compute Engine Service Account to Cloud SQL - Viewer access (for PostgreSQL)
+if gcloud projects get-iam-policy $PROJECT_ID --format=yaml | grep -q "compute-engine-sa@$PROJECT_ID.iam.gserviceaccount.com"; then
+    echo "✅ IAM policy binding for Compute Engine Service Account to Cloud SQL - Viewer access (for PostgreSQL) already exists"
+else
+    echo "Adding IAM policy binding for Compute Engine Service Account to Cloud SQL - Viewer access (for PostgreSQL)..."
     if gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:compute-engine-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/cloudsql.admin"
+    --role="roles/cloudsql.viewer"
     then
-        echo "✅ IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL) added"
+        echo "✅ IAM policy binding for Compute Engine Service Account to Cloud SQL - Viewer access (for PostgreSQL) added"
     else
-        echo "❌ ERROR: Failed to add IAM policy binding for Compute Engine Service Account to Cloud SQL - Admin access (for PostgreSQL)"
+        echo "❌ ERROR: Failed to add IAM policy binding for Compute Engine Service Account to Cloud SQL - Viewer access (for PostgreSQL)"
         echo "   Please check your permissions and try again"
         exit 1
     fi
@@ -290,9 +332,9 @@ if gcloud iam service-accounts describe airflow-sa@$PROJECT_ID.iam.gserviceaccou
 else
     echo "Creating Airflow Service Account..."
     if gcloud iam service-accounts create airflow-sa \
-    --display-name="Airflow Service Account" \
-    --description="Service account for Airflow DAGs" \
-    --project=$PROJECT_ID; then
+        --display-name="Airflow Service Account" \
+        --description="Service account for Airflow DAGs" \
+        --project=$PROJECT_ID; then
         echo "✅ Airflow Service Account created: airflow-sa"
     else
         echo "❌ ERROR: Failed to create Airflow service account"
@@ -301,13 +343,25 @@ else
     fi
 fi
 
+# Wait for all service accounts to be fully propagated in GCP before proceeding
+echo ""
+echo "⏳ Waiting 5 seconds for all service accounts to be fully propagated in GCP..."
+sleep 5
+echo "✅ Service account propagation wait complete"
+echo ""
+
 # Download all service account keys (JSON) and save them in a folder called "config"
 mkdir -p config
 gcloud iam service-accounts keys create config/airflow-sa.json --iam-account airflow-sa@$PROJECT_ID.iam.gserviceaccount.com --project=$PROJECT_ID
 gcloud iam service-accounts keys create config/cloud-run-sa.json --iam-account cloud-run-sa@$PROJECT_ID.iam.gserviceaccount.com --project=$PROJECT_ID
 gcloud iam service-accounts keys create config/compute-engine-sa.json --iam-account compute-engine-sa@$PROJECT_ID.iam.gserviceaccount.com --project=$PROJECT_ID
+gcloud iam service-accounts keys create config/cloud-sql-sa.json --iam-account cloud-sql-sa@$PROJECT_ID.iam.gserviceaccount.com --project=$PROJECT_ID
 
 echo "Service account keys downloaded and saved to config folder"
 
+echo "--------------------------------"
+echo "Authenticating with GCP application default..."
+gcloud auth application-default login
+echo "Authenticated with GCP application default"
 echo "--------------------------------"
 echo "Done setting up the project"

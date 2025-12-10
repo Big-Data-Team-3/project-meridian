@@ -1,6 +1,7 @@
 from agents import Agent, Runner
 from agents_module.utils.core_stock_tools import get_stock_data
 from agents_module.utils.technical_indicators_tools import get_indicators
+from agents_module.utils.runner_helper import run_agent_sync
 
 
 def create_market_analyst(model: str = "gpt-4o-mini"):
@@ -93,8 +94,8 @@ def create_market_analyst(model: str = "gpt-4o-mini"):
         
         # Run the agent using Runner
         try:
-            # Use Runner.run_sync for synchronous execution
-            result = Runner.run_sync(agent, user_message)
+            # Use helper to run in isolated thread to avoid event loop conflicts
+            result = run_agent_sync(agent, user_message)
             
             # Extract the report from the result
             report = ""

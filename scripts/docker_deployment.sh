@@ -39,6 +39,35 @@ if [ -z "$GOOGLE_CLIENT_ID" ]; then
     echo -e "${YELLOW}   Google Sign-In will not work. Set it in .env file or export it.${NC}\n"
 fi
 
+# Display database configuration status
+if [ -z "$INSTANCE_CONNECTION_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ] || [ -z "$DB_NAME" ]; then
+    echo -e "${YELLOW}⚠️  Warning: Database environment variables not set${NC}"
+    echo -e "${YELLOW}   Required: INSTANCE_CONNECTION_NAME, DB_USER, DB_PASS, DB_NAME${NC}"
+    echo -e "${YELLOW}   Set them in .env file or export them${NC}\n"
+else
+    echo -e "${GREEN}✓ Database configuration found${NC}\n"
+fi
+
+# Display OpenAI configuration status
+if [ -z "$OPENAI_API_KEY" ]; then
+    echo -e "${YELLOW}⚠️  Warning: OPENAI_API_KEY is not set${NC}"
+    echo -e "${YELLOW}   Chat functionality will not work. Set it in .env file or export it.${NC}\n"
+else
+    echo -e "${GREEN}✓ OpenAI API key found${NC}\n"
+fi
+
+# Display GCP credentials status
+if [ -z "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    echo -e "${YELLOW}⚠️  Warning: GOOGLE_APPLICATION_CREDENTIALS is not set${NC}"
+    echo -e "${YELLOW}   Cloud SQL connection will fail. Set it in .env file or export it.${NC}"
+    echo -e "${YELLOW}   Example: GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json${NC}\n"
+elif [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    echo -e "${YELLOW}⚠️  Warning: GOOGLE_APPLICATION_CREDENTIALS file not found: ${GOOGLE_APPLICATION_CREDENTIALS}${NC}"
+    echo -e "${YELLOW}   Cloud SQL connection will fail. Check the file path.${NC}\n"
+else
+    echo -e "${GREEN}✓ GCP credentials file found: ${GOOGLE_APPLICATION_CREDENTIALS}${NC}\n"
+fi
+
 # Configuration
 FRONTEND_IMAGE="meridian-frontend:latest"
 BACKEND_IMAGE="meridian-backend:latest"
@@ -130,11 +159,71 @@ sleep 5
 
 # Run Backend Service
 echo -e "${YELLOW}Starting ${BACKEND_CONTAINER} on port ${BACKEND_PORT}...${NC}"
-if docker run -d \
+
+# Check for required environment variables
+if [ -z "$INSTANCE_CONNECTION_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ] || [ -z "$DB_NAME" ]; then
+    echo -e "${RED}✗ Missing required database environment variables${NC}"
+    echo -e "${YELLOW}   Required: INSTANCE_CONNECTION_NAME, DB_USER, DB_PASS, DB_NAME${NC}"
+    echo -e "${YELLOW}   Set them in .env file or export them${NC}"
+    exit 1
+fi
+
+if [ -z "$OPENAI_API_KEY" ]; then
+    echo -e "${RED}✗ Missing required OPENAI_API_KEY environment variable${NC}"
+    echo -e "${YELLOW}   Set it in .env file or export it${NC}"
+    exit 1
+fi
+
+# Build docker run command with environment variables
+BACKEND_RUN_CMD="docker run -d \
     -p ${BACKEND_PORT}:${BACKEND_PORT} \
     --name ${BACKEND_CONTAINER} \
     -e AGENTS_SERVICE_URL=http://host.docker.internal:${AGENTS_PORT} \
-    ${BACKEND_IMAGE}; then
+    -e INSTANCE_CONNECTION_NAME=${INSTANCE_CONNECTION_NAME} \
+    -e DB_USER=${DB_USER} \
+    -e DB_PASS=${DB_PASS} \
+    -e DB_NAME=${DB_NAME} \
+    -e DB_TYPE=${DB_TYPE:-postgresql} \
+    -e OPENAI_API_KEY=${OPENAI_API_KEY} \
+    -e OPENAI_MODEL=${OPENAI_MODEL:-gpt-4}"
+
+# Add GCP credentials volume if provided (REQUIRED for Cloud SQL)
+if [ -z "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    echo -e "${RED}✗ Missing required GOOGLE_APPLICATION_CREDENTIALS environment variable${NC}"
+    echo -e "${YELLOW}   Cloud SQL connection requires GCP service account credentials.${NC}"
+    echo -e "${YELLOW}   Set GOOGLE_APPLICATION_CREDENTIALS in .env file pointing to your service account JSON file.${NC}"
+    echo -e "${YELLOW}   Example: GOOGLE_APPLICATION_CREDENTIALS=/path/to/config/cloud-run-sa.json${NC}"
+    exit 1
+elif [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    echo -e "${RED}✗ GCP credentials file not found: ${GOOGLE_APPLICATION_CREDENTIALS}${NC}"
+    echo -e "${YELLOW}   Please check the file path and ensure the file exists.${NC}"
+    exit 1
+else
+    # Mount credentials file and set environment variable
+    BACKEND_RUN_CMD="${BACKEND_RUN_CMD} \
+    -v ${GOOGLE_APPLICATION_CREDENTIALS}:/app/gcp-credentials.json:ro \
+    -e GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-credentials.json"
+    echo -e "${GREEN}✓ GCP credentials file will be mounted: ${GOOGLE_APPLICATION_CREDENTIALS}${NC}"
+fi
+
+# Add optional environment variables
+if [ -n "$PORT" ]; then
+    BACKEND_RUN_CMD="${BACKEND_RUN_CMD} -e PORT=${PORT}"
+fi
+if [ -n "$LOG_LEVEL" ]; then
+    BACKEND_RUN_CMD="${BACKEND_RUN_CMD} -e LOG_LEVEL=${LOG_LEVEL}"
+fi
+if [ -n "$ENVIRONMENT" ]; then
+    BACKEND_RUN_CMD="${BACKEND_RUN_CMD} -e ENVIRONMENT=${ENVIRONMENT}"
+fi
+if [ -n "$MAX_CONVERSATION_HISTORY" ]; then
+    BACKEND_RUN_CMD="${BACKEND_RUN_CMD} -e MAX_CONVERSATION_HISTORY=${MAX_CONVERSATION_HISTORY}"
+fi
+
+BACKEND_RUN_CMD="${BACKEND_RUN_CMD} ${BACKEND_IMAGE}"
+
+# Execute the command
+if eval ${BACKEND_RUN_CMD}; then
     echo -e "${GREEN}✓ ${BACKEND_CONTAINER} started${NC}\n"
 else
     echo -e "${RED}✗ Failed to start ${BACKEND_CONTAINER}${NC}"
@@ -198,8 +287,15 @@ echo -e "  Backend:   ${GREEN}http://localhost:${BACKEND_PORT}${NC}"
 echo -e "  Agents:    ${GREEN}http://localhost:${AGENTS_PORT}${NC}"
 
 echo -e "\n${YELLOW}Useful Commands:${NC}"
-echo -e "  View logs:     ${GREEN}docker logs -f ${CONTAINER_NAME}${NC}"
-echo -e "  Stop all:      ${GREEN}docker stop ${FRONTEND_CONTAINER} ${BACKEND_CONTAINER} ${AGENTS_CONTAINER}${NC}"
-echo -e "  Remove all:    ${GREEN}docker rm ${FRONTEND_CONTAINER} ${BACKEND_CONTAINER} ${AGENTS_CONTAINER}${NC}"
+echo -e "  View backend logs:  ${GREEN}docker logs -f ${BACKEND_CONTAINER}${NC}"
+echo -e "  View frontend logs: ${GREEN}docker logs -f ${FRONTEND_CONTAINER}${NC}"
+echo -e "  View agents logs:   ${GREEN}docker logs -f ${AGENTS_CONTAINER}${NC}"
+echo -e "  Stop all:           ${GREEN}docker stop ${FRONTEND_CONTAINER} ${BACKEND_CONTAINER} ${AGENTS_CONTAINER}${NC}"
+echo -e "  Remove all:          ${GREEN}docker rm ${FRONTEND_CONTAINER} ${BACKEND_CONTAINER} ${AGENTS_CONTAINER}${NC}"
+
+echo -e "\n${YELLOW}Important Notes:${NC}"
+echo -e "  • Database migrations run automatically on backend startup${NC}"
+echo -e "  • Ensure Cloud SQL credentials are properly configured${NC}"
+echo -e "  • Check logs if services fail to start: ${GREEN}docker logs ${BACKEND_CONTAINER}${NC}"
 
 echo -e "\n${GREEN}All services are running!${NC}\n"

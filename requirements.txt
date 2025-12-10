@@ -50,3 +50,12 @@ openai-agents==0.6.2
 fastapi
 uvicorn[standard]
 httpx
+nest-asyncio
+
+# OpenAI Chat Application
+openai
+
+# Cloud SQL
+pg8000
+cloud-sql-python-connector[pg8000]    
+psycopg[binary]
