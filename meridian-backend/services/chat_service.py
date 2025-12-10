@@ -26,23 +26,30 @@ class ChatService:
     async def process_chat_message(
         self,
         thread_id: str,
-        user_message: str
+        user_message: str,
+        user_id: str = None
     ) -> dict:
         """
         Process a chat message: save user message, get OpenAI response, save assistant response.
+        Only processes messages for threads owned by the specified user.
         
         Args:
             thread_id: Thread identifier
             user_message: User message content
+            user_id: Required user ID (UUID). Used to verify thread ownership.
         
         Returns:
             Dictionary with message IDs and assistant response
         
         Raises:
-            Exception: If thread not found, database error, or OpenAI API error
+            ValueError: If user_id is not provided
+            Exception: If thread not found or not owned by user, database error, or OpenAI API error
         """
-        # Verify thread exists
-        thread = await self.thread_service.get_thread(thread_id)
+        if not user_id:
+            raise ValueError("user_id is required to process chat message")
+        
+        # Verify thread exists and belongs to user
+        thread = await self.thread_service.get_thread(thread_id, user_id=user_id)
         if not thread:
             raise Exception(f"Thread {thread_id} not found")
         

@@ -1,13 +1,15 @@
 """
 Message management API endpoints.
+All endpoints require authentication and are user-scoped via thread ownership.
 """
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from models.message import MessageResponse, MessageListResponse
 from services.message_service import MessageService
 from services.thread_service import ThreadService
+from api.auth import require_auth
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +37,13 @@ def get_thread_service() -> ThreadService:
 
 
 @router.get("/{thread_id}/messages", response_model=MessageListResponse)
-async def get_thread_messages(thread_id: str):
+async def get_thread_messages(
+    thread_id: str,
+    current_user: dict = Depends(require_auth)
+):
     """
     Get all messages for a thread, ordered chronologically.
+    Only returns messages if the thread belongs to the authenticated user.
     
     Args:
         thread_id: Thread identifier
@@ -46,19 +52,20 @@ async def get_thread_messages(thread_id: str):
         MessageListResponse with list of messages
     
     Raises:
-        404: If thread not found
+        401: If not authenticated
+        404: If thread not found or not owned by user (to avoid information leakage)
     """
     try:
-        # First verify thread exists
+        # First verify thread exists and belongs to user
         thread_service = get_thread_service()
-        thread = await thread_service.get_thread(thread_id)
+        thread = await thread_service.get_thread(thread_id, user_id=current_user["id"])
         if not thread:
             raise HTTPException(
                 status_code=404,
                 detail=f"Thread {thread_id} not found"
             )
         
-        # Get messages
+        # Get messages (messages inherit ownership through thread)
         service = get_message_service()
         messages = await service.get_messages_by_thread(thread_id)
         

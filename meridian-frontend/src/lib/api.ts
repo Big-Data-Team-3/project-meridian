@@ -34,6 +34,20 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
+    // Always check for token from localStorage on each request
+    // This ensures we have the latest token even if it was updated elsewhere
+    if (typeof window !== 'undefined') {
+      try {
+        const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+        if (storedToken) {
+          this.token = JSON.parse(storedToken);
+        }
+      } catch {
+        // If parsing fails, token might be invalid - clear it
+        this.token = null;
+      }
+    }
+
     const url = `${this.baseUrl}${endpoint}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -42,6 +56,9 @@ class ApiClient {
 
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
+      console.log(`🔑 API Request with auth token: ${options.method || 'GET'} ${url}`);
+    } else {
+      console.warn(`⚠️ API Request WITHOUT auth token: ${options.method || 'GET'} ${url}`);
     }
 
     try {
@@ -61,9 +78,22 @@ class ApiClient {
       if (!response.ok) {
         console.error(`❌ API Error Response:`, {
           status: response.status,
-          error: data.error || data.message,
+          error: data.error || data.message || data.detail,
           data,
         });
+        
+        // Handle 401 Unauthorized - clear token and redirect to login
+        if (response.status === 401) {
+          console.warn('⚠️ Unauthorized - clearing token');
+          this.setToken(null);
+          if (typeof window !== 'undefined') {
+            // Clear user data as well
+            localStorage.removeItem(STORAGE_KEYS.USER);
+            // Optionally redirect to login page
+            // window.location.href = '/';
+          }
+        }
+        
         return {
           data: data as T,
           error: data.error || data.message || data.detail || `HTTP ${response.status}`,
