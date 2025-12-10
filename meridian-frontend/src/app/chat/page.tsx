@@ -6,10 +6,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { useConversation } from '@/contexts/ConversationContext';
 import { useChat } from '@/hooks/useChat';
 import { useConversations } from '@/hooks/useConversations';
+import { useAgentStreaming } from '@/hooks/useAgentStreaming';
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { MessageList } from '@/components/chat/MessageList';
 import { InputBar } from '@/components/chat/InputBar';
+import { AgentTraceSidebar } from '@/components/chat/AgentTraceSidebar';
+import { useAgent } from '@/contexts/AgentContext';
 import { cn } from '@/lib/utils';
 
 export default function ChatPage(): ReactElement | null {
@@ -21,6 +24,26 @@ export default function ChatPage(): ReactElement | null {
   );
   const { createConversation, isCreating, error: conversationsError } = useConversations();
   const [sidebarOpen, setSidebarOpen] = useState(true); // Default to open on desktop
+  
+  // Prepare conversation context for agent streaming
+  const conversationContext = messages.map((msg) => ({
+    role: msg.role,
+    content: msg.content,
+    timestamp: msg.timestamp.toISOString(),
+  }));
+  
+  const { startStreaming } = useAgentStreaming(
+    conversationContext,
+    {
+      enabled: true,
+      onError: (error) => {
+        console.error('Agent streaming error:', error);
+      },
+    },
+    activeConversationId || undefined
+  );
+  
+  const { isTraceOpen, closeTrace } = useAgent();
 
   useEffect(() => {
     // Only redirect if auth loading is complete and user is not authenticated
@@ -59,7 +82,19 @@ export default function ChatPage(): ReactElement | null {
       }
     }
     
-    sendMessage(message);
+    // Send message to chat endpoint - backend will classify and route
+    const chatResponse = await sendMessage(message);
+    
+    // Check if backend indicates we should use streaming (agentic query)
+    if (chatResponse?.use_streaming) {
+      // Backend has classified this as an agentic query - use streaming
+      console.log(`Routing to agent service: intent=${chatResponse.intent}, workflow=${chatResponse.workflow}`);
+      startStreaming(message);
+    } else {
+      // Simple chat query - response already received from OpenAI
+      console.log(`Using OpenAI response: intent=${chatResponse?.intent || 'simple_chat'}`);
+      // The response is already handled by sendMessage mutation
+    }
     } catch (error) {
       console.error('Error sending message:', error);
       alert('Failed to send message. Please try again.');
@@ -194,6 +229,9 @@ export default function ChatPage(): ReactElement | null {
           />
         </svg>
       </button>
+      
+      {/* Agent Trace Sidebar */}
+      <AgentTraceSidebar isOpen={isTraceOpen} onClose={closeTrace} />
     </div>
   );
 }

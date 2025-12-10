@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import json
 from datetime import date
-from typing import Dict, Any, Tuple, List, Optional
+from typing import Dict, Any, Tuple, List, Optional, Callable
 
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -25,6 +25,16 @@ from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
+
+# Import streaming utilities
+try:
+    from utils.streaming import EventEmitter, AgentStreamEvent, get_agent_name, detect_agent_from_state
+except ImportError:
+    # Fallback if streaming utils not available
+    EventEmitter = None
+    AgentStreamEvent = None
+    get_agent_name = lambda x: x
+    detect_agent_from_state = lambda x: None
 
 
 class TradingAgentsGraph:
@@ -97,14 +107,51 @@ class TradingAgentsGraph:
         self.curr_state = None
         self.ticker = None
         self.log_states_dict = {}  # date to full state dict
+        
+        # Store selected analysts for streaming
+        self.selected_analysts = selected_analysts
+        
+        # Streaming support
+        self.event_emitter: Optional[EventEmitter] = None
+        self.enable_streaming = False
 
         # Set up the graph
         self.graph = self.graph_setup.setup_graph(selected_analysts)
+    
+    def enable_event_streaming(self, event_emitter: Optional[EventEmitter] = None):
+        """Enable event streaming for agent execution."""
+        if EventEmitter is None:
+            return  # Streaming not available
+        
+        self.enable_streaming = True
+        self.event_emitter = event_emitter or EventEmitter()
+        
+        # Estimate total steps based on selected analysts
+        total_steps = len(self.selected_analysts) * 2  # Rough estimate
+        # Add steps for debate and risk if they're part of the workflow
+        # (This would be determined by the workflow config, but we estimate conservatively)
+        total_steps += 4  # Potential debate steps
+        total_steps += 3  # Potential risk steps
+        
+        self.event_emitter.set_total_steps(total_steps)
 
     async def propagate(self, company_name, trade_date):
         """Run the trading agents graph for a company on a specific date (async)."""
 
         self.ticker = company_name
+
+        # Emit start event if streaming enabled
+        if self.enable_streaming and self.event_emitter:
+            start_event = AgentStreamEvent(
+                event_type="analysis_start",
+                message=f"Starting analysis for {company_name}",
+                data={
+                    "company": company_name,
+                    "trade_date": str(trade_date),
+                    "agents_selected": self.selected_analysts
+                }
+            )
+            self.event_emitter.emit(start_event)
 
         # Initialize state
         init_agent_state = self.propagator.create_initial_state(
@@ -117,18 +164,85 @@ class TradingAgentsGraph:
         
         def _run_graph():
             """Run graph synchronously in thread pool."""
-        if self.debug:
-            # Debug mode with tracing
-            trace = []
-            for chunk in self.graph.stream(init_agent_state, **args):
-                if len(chunk["messages"]) == 0:
-                    pass
-                else:
-                    chunk["messages"][-1].pretty_print()
+            if self.enable_streaming or self.debug:
+                # Use streaming mode to track progress
+                trace = []
+                previous_agent = None
+                
+                for chunk in self.graph.stream(init_agent_state, **args):
+                    # Extract state from chunk
+                    state = chunk if isinstance(chunk, dict) else chunk.get("state", {}) if hasattr(chunk, "get") else {}
+                    
+                    # Detect current agent
+                    current_agent = detect_agent_from_state(state)
+                    
+                    # Check for tool calls in messages
+                    messages = chunk.get("messages", [])
+                    tool_calls_detected = []
+                    for msg in messages:
+                        # Check for tool calls in LangChain message format
+                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+                            for tool_call in msg.tool_calls:
+                                tool_calls_detected.append({
+                                    "name": tool_call.get("name", "unknown"),
+                                    "args": tool_call.get("args", {})
+                                })
+                        # Also check for ToolMessage (result of tool execution)
+                        elif hasattr(msg, "content") and hasattr(msg, "name") and msg.name:
+                            # ToolMessage typically has a name attribute
+                            if "tool" in str(type(msg)).lower() or "ToolMessage" in str(type(msg)):
+                                tool_calls_detected.append({
+                                    "name": getattr(msg, "name", "unknown"),
+                                    "result": str(msg.content)[:100] if hasattr(msg, "content") else ""
+                                })
+                    
+                    # Emit agent activity events
+                    if self.enable_streaming and self.event_emitter:
+                        if current_agent and current_agent != previous_agent:
+                            # New agent started
+                            agent_event = AgentStreamEvent(
+                                event_type="agent_active",
+                                agent_name=current_agent,
+                                message=f"{current_agent} is now analyzing {company_name}",
+                                progress=self.event_emitter.increment_step()
+                            )
+                            self.event_emitter.emit(agent_event)
+                            previous_agent = current_agent
+                        
+                        # Emit tool usage events
+                        if tool_calls_detected:
+                            for tool_call in tool_calls_detected:
+                                tool_event = AgentStreamEvent(
+                                    event_type="tool_usage",
+                                    agent_name=current_agent or "Unknown",
+                                    message=f"Using tool: {tool_call.get('name', 'unknown')}",
+                                    data={"tool_name": tool_call.get("name"), "tool_args": tool_call.get("args")}
+                                )
+                                self.event_emitter.emit(tool_event)
+                        
+                        if current_agent:
+                            # Same agent, progress update
+                            progress = self.event_emitter.increment_step()
+                            if progress and progress % 10 == 0:  # Emit every 10%
+                                progress_event = AgentStreamEvent(
+                                    event_type="progress",
+                                    agent_name=current_agent,
+                                    message=f"{current_agent} is analyzing...",
+                                    progress=progress
+                                )
+                                self.event_emitter.emit(progress_event)
+                    
+                    if self.debug:
+                        if len(chunk.get("messages", [])) > 0:
+                            chunk["messages"][-1].pretty_print()
+                    
                     trace.append(chunk)
-                return trace[-1]
-        else:
-            # Standard mode without tracing
+                
+                # Get final state from last chunk
+                final_state = trace[-1] if trace else self.graph.invoke(init_agent_state, **args)
+                return final_state
+            else:
+                # Standard mode without tracing
                 return self.graph.invoke(init_agent_state, **args)
 
         # Run in thread pool to avoid event loop conflicts
@@ -137,11 +251,27 @@ class TradingAgentsGraph:
         # Store current state for reflection
         self.curr_state = final_state
 
+        # Emit completion event if streaming enabled
+        if self.enable_streaming and self.event_emitter:
+            decision = self.process_signal(final_state.get("final_trade_decision", "HOLD"))
+            complete_event = AgentStreamEvent(
+                event_type="analysis_complete",
+                message=f"Analysis complete for {company_name}",
+                progress=100,
+                data={
+                    "decision": decision,
+                    "company": company_name,
+                    "trade_date": str(trade_date),
+                    "agents_used": self.selected_analysts
+                }
+            )
+            self.event_emitter.emit(complete_event)
+
         # Log state
         self._log_state(trade_date, final_state)
 
         # Return decision and processed signal
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        return final_state, self.process_signal(final_state.get("final_trade_decision", "HOLD"))
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""

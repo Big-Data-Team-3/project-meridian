@@ -1,0 +1,210 @@
+'use client';
+
+import { useEffect, useRef, useCallback } from 'react';
+import { useAgent } from '@/contexts/AgentContext';
+import { STORAGE_KEYS } from '@/lib/storage';
+import type { AgentStreamEvent } from '@/types/agent';
+
+interface UseAgentStreamingOptions {
+  enabled?: boolean;
+  onError?: (error: Error) => void;
+}
+
+/**
+ * Hook to connect to SSE stream for agent activity updates
+ */
+export function useAgentStreaming(
+  conversationContext: Array<{ role: string; content: string; timestamp?: string }> = [],
+  options: UseAgentStreamingOptions = {},
+  threadId?: string
+) {
+  const { updateActivity, clearActivity } = useAgent();
+  const { enabled = true, onError } = options;
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const startStreaming = useCallback(
+    async (message: string) => {
+      if (!enabled) return;
+
+      // Clear previous activity
+      clearActivity();
+
+      // Abort any existing stream
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      // Create new abort controller
+      abortControllerRef.current = new AbortController();
+
+      try {
+        // Get auth token from storage
+        let token: string | null = null;
+        
+        try {
+          const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+          if (storedToken) {
+            // Token is stored as JSON string
+            token = JSON.parse(storedToken);
+          }
+        } catch {
+          // Try direct access if JSON parsing fails
+          token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+        }
+        
+        if (!token) {
+          throw new Error('No authentication token found');
+        }
+
+        // Extract company name from message (simple heuristic)
+        const companyNames: Record<string, string> = {
+          'aapl': 'AAPL', 'apple': 'AAPL',
+          'tsla': 'TSLA', 'tesla': 'TSLA',
+          'msft': 'MSFT', 'microsoft': 'MSFT',
+          'amzn': 'AMZN', 'amazon': 'AMZN',
+          'googl': 'GOOGL', 'google': 'GOOGL', 'alphabet': 'GOOGL',
+          'nvda': 'NVDA', 'nvidia': 'NVDA',
+          'meta': 'META', 'facebook': 'META',
+          'nflx': 'NFLX', 'netflix': 'NFLX',
+          'btc': 'BTC', 'bitcoin': 'BTC',
+          'eth': 'ETH', 'ethereum': 'ETH',
+        };
+        
+        const messageLower = message.toLowerCase();
+        let companyName: string | undefined = undefined;
+        
+        for (const [key, ticker] of Object.entries(companyNames)) {
+          if (messageLower.includes(key)) {
+            companyName = ticker;
+            break;
+          }
+        }
+        
+        // Get today's date in YYYY-MM-DD format
+        const today = new Date();
+        const tradeDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+        // Prepare request body matching backend expectations
+        const requestBody: {
+          query: string;
+          company_name?: string;
+          trade_date: string;
+          conversation_context?: Array<{ role: string; content: string; timestamp?: string }>;
+          thread_id?: string;
+        } = {
+          query: message,
+          trade_date: tradeDate,
+          conversation_context: conversationContext.map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp || new Date().toISOString(),
+          })),
+        };
+        
+        // Add company_name if we extracted it
+        if (companyName) {
+          requestBody.company_name = companyName;
+        }
+        
+        // Add thread_id if provided (for saving agent response to database)
+        if (threadId) {
+          requestBody.thread_id = threadId;
+        }
+
+        // Use fetch with ReadableStream for SSE
+        const response = await fetch('http://localhost:8000/api/streaming/analyze', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(requestBody),
+          signal: abortControllerRef.current.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        if (!response.body) {
+          throw new Error('Response body is null');
+        }
+
+        // Read the stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonStr = line.slice(6); // Remove 'data: ' prefix
+                if (jsonStr.trim()) {
+                  const event: AgentStreamEvent = JSON.parse(jsonStr);
+                  updateActivity(event);
+                }
+              } catch (err) {
+                console.error('Failed to parse SSE event:', err);
+              }
+            } else if (line.startsWith(':')) {
+              // Comment line (keepalive), ignore
+              continue;
+            }
+          }
+        }
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          // Stream was aborted, this is expected
+          return;
+        }
+        console.error('SSE streaming error:', error);
+        if (onError) {
+          onError(error instanceof Error ? error : new Error(String(error)));
+        }
+      }
+    },
+    [conversationContext, enabled, updateActivity, clearActivity, onError]
+  );
+
+  const stopStreaming = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    clearActivity();
+  }, [clearActivity]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopStreaming();
+    };
+  }, [stopStreaming]);
+
+  return {
+    startStreaming,
+    stopStreaming,
+    isStreaming: !!abortControllerRef.current && !abortControllerRef.current.signal.aborted,
+  };
+}
+

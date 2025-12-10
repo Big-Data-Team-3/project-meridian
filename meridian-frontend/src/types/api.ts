@@ -20,8 +20,12 @@ export interface SendMessageRequest {
 export interface SendMessageResponse {
   thread_id: string;
   message_id: string;
-  assistant_message_id: string;
-  response: string;
+  assistant_message_id: string | null;
+  response: string | null;
+  use_streaming?: boolean;
+  intent?: string;
+  workflow?: string;
+  agents?: string[];
 }
 
 export interface GetConversationsResponse {

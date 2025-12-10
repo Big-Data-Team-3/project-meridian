@@ -36,12 +36,14 @@ class StockstatsUtils:
             except FileNotFoundError:
                 raise Exception("Stockstats fail: Yahoo Finance data not fetched yet!")
         else:
-            # Get today's date as YYYY-mm-dd to add to cache
-            today_date = pd.Timestamp.today()
-            curr_date = pd.to_datetime(curr_date)
-
-            end_date = today_date
-            start_date = today_date - pd.DateOffset(years=15)
+            # Use the trade_date (curr_date) as the end date, not today's date
+            # This ensures we analyze data "as of" the trade date, not including future data
+            curr_date_dt = pd.to_datetime(curr_date)
+            
+            # Use curr_date as end_date (the date we're trading on)
+            end_date = curr_date_dt
+            # Go back 15 years from the trade date
+            start_date = curr_date_dt - pd.DateOffset(years=15)
             start_date = start_date.strftime("%Y-%m-%d")
             end_date = end_date.strftime("%Y-%m-%d")
 
@@ -70,7 +72,8 @@ class StockstatsUtils:
 
             df = wrap(data)
             df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
-            curr_date = curr_date.strftime("%Y-%m-%d")
+            # Convert curr_date_dt back to string for matching
+            curr_date = curr_date_dt.strftime("%Y-%m-%d")
 
         df[indicator]  # trigger stockstats to calculate the indicator
         matching_rows = df[df["Date"].str.startswith(curr_date)]

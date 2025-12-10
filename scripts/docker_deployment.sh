@@ -137,14 +137,31 @@ else
     exit 1
 fi
 
-# Step 3: Run containers
-echo -e "${YELLOW}Step 3: Starting containers...${NC}\n"
+# Step 3: Create Docker network (if it doesn't exist)
+NETWORK_NAME="meridian-network"
+echo -e "${YELLOW}Step 3: Setting up Docker network...${NC}\n"
+
+if ! docker network inspect ${NETWORK_NAME} > /dev/null 2>&1; then
+    echo -e "${YELLOW}Creating Docker network ${NETWORK_NAME}...${NC}"
+    if docker network create ${NETWORK_NAME}; then
+        echo -e "${GREEN}✓ Network ${NETWORK_NAME} created${NC}\n"
+    else
+        echo -e "${RED}✗ Failed to create network ${NETWORK_NAME}${NC}"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}✓ Network ${NETWORK_NAME} already exists${NC}\n"
+fi
+
+# Step 4: Run containers
+echo -e "${YELLOW}Step 4: Starting containers...${NC}\n"
 
 # Run Agents Service (start first as backend depends on it)
 echo -e "${YELLOW}Starting ${AGENTS_CONTAINER} on port ${AGENTS_PORT}...${NC}"
 if docker run -d \
     -p ${AGENTS_PORT}:${AGENTS_PORT} \
     --name ${AGENTS_CONTAINER} \
+    --network ${NETWORK_NAME} \
     -e OPENAI_API_KEY=${OPENAI_API_KEY} \
     ${AGENTS_IMAGE}; then
     echo -e "${GREEN}✓ ${AGENTS_CONTAINER} started${NC}\n"
@@ -178,7 +195,8 @@ fi
 BACKEND_RUN_CMD="docker run -d \
     -p ${BACKEND_PORT}:${BACKEND_PORT} \
     --name ${BACKEND_CONTAINER} \
-    -e AGENTS_SERVICE_URL=http://host.docker.internal:${AGENTS_PORT} \
+    --network ${NETWORK_NAME} \
+    -e AGENTS_SERVICE_URL=http://meridian-agents:${AGENTS_PORT} \
     -e INSTANCE_CONNECTION_NAME=${INSTANCE_CONNECTION_NAME} \
     -e DB_USER=${DB_USER} \
     -e DB_PASS=${DB_PASS} \
@@ -232,10 +250,12 @@ fi
 
 # Run Frontend Service
 # Note: NEXT_PUBLIC_* vars are baked in at build time, but we can still pass them for runtime overrides
+# Note: Frontend is added to network for consistency, though it doesn't strictly need it (all API calls are client-side)
 echo -e "${YELLOW}Starting ${FRONTEND_CONTAINER} on port ${FRONTEND_PORT}...${NC}"
 if docker run -d \
     -p ${FRONTEND_PORT}:${FRONTEND_PORT} \
     --name ${FRONTEND_CONTAINER} \
+    --network ${NETWORK_NAME} \
     ${FRONTEND_IMAGE}; then
     echo -e "${GREEN}✓ ${FRONTEND_CONTAINER} started${NC}\n"
 else
@@ -243,8 +263,8 @@ else
     exit 1
 fi
 
-# Step 4: Health checks
-echo -e "${YELLOW}Step 4: Running health checks...${NC}\n"
+# Step 5: Health checks
+echo -e "${YELLOW}Step 5: Running health checks...${NC}\n"
 
 # Wait a bit for services to be ready
 sleep 3
@@ -252,7 +272,13 @@ sleep 3
 check_health() {
     local service=$1
     local url=$2
-    local max_attempts=5
+    local max_attempts=$3
+    local sleep_interval=$4
+    
+    # Default values
+    max_attempts=${max_attempts:-5}
+    sleep_interval=${sleep_interval:-2}
+    
     local attempt=1
     
     while [ $attempt -le $max_attempts ]; do
@@ -261,7 +287,7 @@ check_health() {
             return 0
         fi
         echo -e "${YELLOW}  Attempt ${attempt}/${max_attempts}: ${service} not ready yet...${NC}"
-        sleep 2
+        sleep ${sleep_interval}
         attempt=$((attempt + 1))
     done
     
@@ -269,11 +295,16 @@ check_health() {
     return 1
 }
 
-check_health "Agents Service" "http://localhost:${AGENTS_PORT}/health"
-check_health "Backend Service" "http://localhost:${BACKEND_PORT}/health"
-check_health "Frontend Service" "http://localhost:${FRONTEND_PORT}"
+# Agents service: 5 attempts, 2 seconds each (10 seconds total)
+check_health "Agents Service" "http://localhost:${AGENTS_PORT}/health" 5 2
 
-# Step 5: Display status
+# Backend service: 15 attempts, 3 seconds each (45 seconds total) - needs more time for DB connection and migrations
+check_health "Backend Service" "http://localhost:${BACKEND_PORT}/health" 15 3
+
+# Frontend service: 5 attempts, 2 seconds each (10 seconds total)
+check_health "Frontend Service" "http://localhost:${FRONTEND_PORT}" 5 2
+
+# Step 6: Display status
 echo -e "\n${GREEN}========================================${NC}"
 echo -e "${GREEN}Deployment Complete!${NC}"
 echo -e "${GREEN}========================================${NC}\n"
