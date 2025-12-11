@@ -734,13 +734,13 @@ class MeridianTestSuite:
         for i, query in enumerate(thread.queries):
             try:
                 logger.info(f"Processing query {i+1}/{len(thread.queries)}: {query[:50]}...")
-                
+
                 # Classify query intent
                 intent_result = self.classify_query_intent(query)
                 expected_intent = None
                 if thread.expected_intents and i < len(thread.expected_intents):
                     expected_intent = thread.expected_intents[i]
-                
+
                 # Verify intent classification matches expected (if provided)
                 intent_correct = None
                 if expected_intent and intent_result and intent_result.get("intent") != "error":
@@ -750,10 +750,10 @@ class MeridianTestSuite:
                             f"Intent mismatch for query '{query[:50]}...': "
                             f"expected {expected_intent}, got {intent_result.get('intent')}"
                         )
-                
+
                 # Send chat message
                 chat_response = await self.send_chat_message(thread_id, query)
-                
+
                 # Check if there was an error in the chat response
                 if chat_response and "error" in chat_response:
                     logger.error(f"Chat API returned error for query {i+1}: {chat_response.get('error')}")
@@ -768,20 +768,20 @@ class MeridianTestSuite:
                     else:
                         # For non-streaming responses (like simple_chat), wait a bit for message to be saved
                         await asyncio.sleep(1.0)
-                    
+
                     # Retrieve the assistant message with metadata
                     assistant_message = await self.get_assistant_message(thread_id, query_index=-1)
-                    
+
                     # If message not found, try once more after a short delay
                     if not assistant_message:
                         logger.warning(f"Assistant message not found immediately for query {i+1}, retrying...")
                         await asyncio.sleep(1.0)
                         assistant_message = await self.get_assistant_message(thread_id, query_index=-1)
-                
+
                 # Validate agent trace
                 validation_result = None
                 expected_trace = thread.expected_traces[i] if i < len(thread.expected_traces) else None
-                
+
                 if expected_trace:
                     # For direct_response workflows, we can validate even without assistant_message metadata
                     # by using chat_response data
@@ -792,10 +792,10 @@ class MeridianTestSuite:
                     else:
                         # No assistant message, but for direct_response we can still validate
                         metadata = {}
-                    
+
                     # Pass chat_response for fallback validation (especially for direct_response)
                     validation_result = self.validate_agent_trace(expected_trace, metadata, chat_response)
-                    
+
                     if validation_result and validation_result.get("all_match"):
                         results["validation_summary"]["passed"] += 1
                         logger.info(f"✓ Query {i+1} passed agent trace validation")
@@ -819,7 +819,7 @@ class MeridianTestSuite:
                             )
                         else:
                             logger.warning(f"✗ Query {i+1} failed agent trace validation: no validation result")
-                
+
                 query_result = {
                     "query_number": i + 1,
                     "query": query,
@@ -832,9 +832,9 @@ class MeridianTestSuite:
                     "validation": validation_result,
                     "timestamp": datetime.now().isoformat()
                 }
-                
+
                 results["queries"].append(query_result)
-                
+
                 # Small delay between queries to avoid rate limiting
                 await asyncio.sleep(1.0)
             except Exception as e:
@@ -1058,33 +1058,33 @@ Example usage:
     try:
         async with MeridianTestSuite(backend_url, agents_url, bearer_token) as test_suite:
             results = await test_suite.run_full_test_suite(category_filter=category_filter)
-            
-            # Save results to file
+        
+        # Save results to file
             category_suffix = f"_{category_filter}" if category_filter else "_all"
             output_file = f"meridian_test_results{category_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            with open(output_file, 'w') as f:
-                json.dump(results, f, indent=2, default=str)
+        with open(output_file, 'w') as f:
+            json.dump(results, f, indent=2, default=str)
+        
+        logger.info(f"Results saved to {output_file}")
+        
+        # Print summary
+        info = results["test_suite_info"]
+        print("\n" + "=" * 50)
+        print("TEST SUITE SUMMARY")
+        print("=" * 50)
+        print(f"Duration: {info['duration_seconds']:.2f} seconds")
+        print(f"Threads: {info['successful_threads']}/{info['total_threads']} successful")
+        print(f"Queries: {info['total_queries']} total")
+        print(f"Chat Responses: {info['total_chat_responses']}")
+        print(f"Agent Responses: {info['total_agent_responses']}")
             
-            logger.info(f"Results saved to {output_file}")
-            
-            # Print summary
-            info = results["test_suite_info"]
-            print("\n" + "=" * 50)
-            print("TEST SUITE SUMMARY")
-            print("=" * 50)
-            print(f"Duration: {info['duration_seconds']:.2f} seconds")
-            print(f"Threads: {info['successful_threads']}/{info['total_threads']} successful")
-            print(f"Queries: {info['total_queries']} total")
-            print(f"Chat Responses: {info['total_chat_responses']}")
-            print(f"Agent Responses: {info['total_agent_responses']}")
-            
-            if 'intent_classification' in info:
-                intent_info = info['intent_classification']
-                print(f"\nIntent Classification Results:")
-                print(f"  Total Classifications: {intent_info['total_classifications']}")
-                print(f"  Correct: {intent_info['correct']}")
-                print(f"  Incorrect: {intent_info['incorrect']}")
-                print(f"  Accuracy: {intent_info['accuracy_percent']}%")
+        if 'intent_classification' in info:
+            intent_info = info['intent_classification']
+            print(f"\nIntent Classification Results:")
+            print(f"  Total Classifications: {intent_info['total_classifications']}")
+            print(f"  Correct: {intent_info['correct']}")
+            print(f"  Incorrect: {intent_info['incorrect']}")
+            print(f"  Accuracy: {intent_info['accuracy_percent']}%")
             
             if 'agent_trace_validation' in info:
                 trace_info = info['agent_trace_validation']
@@ -1094,10 +1094,10 @@ Example usage:
                 print(f"  Failed: {trace_info['failed']}")
                 print(f"  Accuracy: {trace_info['accuracy_percent']}%")
             
-            print(f"\nResults saved to: {output_file}")
-            
-            # Cleanup
-            await test_suite.cleanup_test_threads()
+        print(f"\nResults saved to: {output_file}")
+        
+        # Cleanup
+        await test_suite.cleanup_test_threads()
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)
