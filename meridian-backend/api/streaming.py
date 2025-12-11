@@ -288,6 +288,7 @@ async def stream_agent_analysis(
         # For agent workflows, prepare request and route to agent service
         async def event_generator():
             final_response_text = None
+            full_agent_response = None  # Store complete agent analysis result
             message_service = MessageService() if request.thread_id else None
             agent_trace_events = []  # Collect all trace events for persistence
             
@@ -359,6 +360,10 @@ async def stream_agent_analysis(
                                         if event_data.get("event_type") in ["complete", "analysis_complete"]:
                                             if event_data.get("data") and isinstance(event_data["data"], dict):
                                                 data = event_data["data"]
+                                                
+                                                # Store the complete agent response for metadata
+                                                full_agent_response = data
+                                                
                                                 # Extract full response text - prefer "response" field which contains full analysis
                                                 final_response_text = (
                                                     data.get("response") or  # Full analysis response
@@ -399,7 +404,7 @@ async def stream_agent_analysis(
                     # Save agent response to database if thread_id is provided
                     if request.thread_id and final_response_text and message_service:
                         try:
-                            # Prepare metadata with agent trace
+                            # Prepare metadata with agent trace AND full analysis
                             metadata = {
                                 "agent_trace": {
                                     "events": agent_trace_events,
@@ -413,7 +418,9 @@ async def stream_agent_analysis(
                                 },
                                 "source": "agent_service",
                                 "workflow_type": workflow.workflow_type,
-                                "agents_used": workflow.agents
+                                "agents_used": workflow.agents,
+                                # Include full agent analysis for frontend breakdown
+                                "agent_analysis": full_agent_response if full_agent_response else None
                             }
                             
                             assistant_msg = await message_service.save_assistant_message(

@@ -254,6 +254,10 @@ class TradingAgentsGraph:
         # Emit completion event if streaming enabled
         if self.enable_streaming and self.event_emitter:
             decision = self.process_signal(final_state.get("final_trade_decision", "HOLD"))
+            
+            # Prepare serializable state (remove non-serializable objects)
+            serializable_state = self._prepare_serializable_state(final_state)
+            
             complete_event = AgentStreamEvent(
                 event_type="analysis_complete",
                 message=f"Analysis complete for {company_name}",
@@ -261,8 +265,14 @@ class TradingAgentsGraph:
                 data={
                     "decision": decision,
                     "company": company_name,
-                    "trade_date": str(trade_date),
-                    "agents_used": self.selected_analysts
+                    "date": str(trade_date),
+                    "state": serializable_state,  # Include full state for frontend breakdown
+                    "response": (
+                        final_state.get("final_trade_decision") or
+                        final_state.get("trader_investment_plan") or
+                        final_state.get("investment_plan") or
+                        decision
+                    )
                 }
             )
             self.event_emitter.emit(complete_event)
@@ -273,6 +283,49 @@ class TradingAgentsGraph:
         # Return decision and processed signal
         return final_state, self.process_signal(final_state.get("final_trade_decision", "HOLD"))
 
+    def _prepare_serializable_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Prepare state for JSON serialization by removing non-serializable objects.
+        Keeps all string reports and debate states.
+        """
+        serializable = {}
+        
+        # Include all string reports
+        string_fields = [
+            "market_report",
+            "fundamentals_report", 
+            "sentiment_report",
+            "news_report",
+            "information_report",
+            "investment_plan",
+            "trader_investment_plan",
+            "final_trade_decision"
+        ]
+        
+        for field in string_fields:
+            if field in state and isinstance(state[field], str):
+                serializable[field] = state[field]
+        
+        # Include debate states (they contain string histories)
+        if "investment_debate_state" in state:
+            debate_state = state["investment_debate_state"]
+            serializable["investment_debate_state"] = {
+                "bull_history": debate_state.get("bull_history", ""),
+                "bear_history": debate_state.get("bear_history", ""),
+                "judge_decision": debate_state.get("judge_decision", "")
+            }
+        
+        if "risk_debate_state" in state:
+            risk_state = state["risk_debate_state"]
+            serializable["risk_debate_state"] = {
+                "risky_history": risk_state.get("risky_history", ""),
+                "safe_history": risk_state.get("safe_history", ""),
+                "neutral_history": risk_state.get("neutral_history", ""),
+                "judge_decision": risk_state.get("judge_decision", "")
+            }
+        
+        return serializable
+    
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
         self.log_states_dict[str(trade_date)] = {

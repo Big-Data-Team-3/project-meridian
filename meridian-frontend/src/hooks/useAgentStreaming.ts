@@ -8,6 +8,7 @@ import type { AgentStreamEvent } from '@/types/agent';
 interface UseAgentStreamingOptions {
   enabled?: boolean;
   onError?: (error: Error) => void;
+  onComplete?: () => void;  // Callback when streaming completes successfully
 }
 
 /**
@@ -19,7 +20,7 @@ export function useAgentStreaming(
   threadId?: string
 ) {
   const { updateActivity, clearActivity } = useAgent();
-  const { enabled = true, onError } = options;
+  const { enabled = true, onError, onComplete } = options;
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -158,6 +159,14 @@ export function useAgentStreaming(
                 if (jsonStr.trim()) {
                   const event: AgentStreamEvent = JSON.parse(jsonStr);
                   updateActivity(event);
+                  
+                  // Check if streaming completed
+                  if (event.event_type === 'complete' || event.event_type === 'analysis_complete' || event.event_type === 'orchestration_complete') {
+                    console.log('✅ Streaming complete, calling onComplete callback');
+                    if (onComplete) {
+                      onComplete();
+                    }
+                  }
                 }
               } catch (err) {
                 console.error('Failed to parse SSE event:', err);
@@ -167,6 +176,12 @@ export function useAgentStreaming(
               continue;
             }
           }
+        }
+        
+        // Also call onComplete when stream ends naturally
+        if (onComplete) {
+          console.log('✅ Stream ended, calling onComplete callback');
+          onComplete();
         }
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
@@ -179,7 +194,7 @@ export function useAgentStreaming(
         }
       }
     },
-    [conversationContext, enabled, updateActivity, clearActivity, onError]
+    [conversationContext, enabled, updateActivity, clearActivity, onError, onComplete]
   );
 
   const stopStreaming = useCallback(() => {

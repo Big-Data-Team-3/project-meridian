@@ -118,8 +118,9 @@ def create_market_analyst(model: str = "gpt-4o-mini"):
             updated_messages.append(AIMessage(content=report))
        
             return {
-                    "messages": updated_messages,
+                "messages": updated_messages,
                 "market_report": report,
+                "sender": "Market Analyst",
             }
         except Exception as e:
             error_msg = f"Error running market analyst: {str(e)}"

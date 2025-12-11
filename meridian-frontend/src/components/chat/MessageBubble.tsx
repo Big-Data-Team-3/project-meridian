@@ -8,6 +8,7 @@ import type { Message } from '@/types';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { useAgent } from '@/contexts/AgentContext';
+import { AnalysisBreakdown } from './AnalysisBreakdown';
 // import 'highlight.js/styles/github-dark.css';
 
 interface MessageBubbleProps {
@@ -34,36 +35,49 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
     >
       <div
         className={cn(
-          'max-w-[85%] rounded-2xl px-4 py-3',
+          'rounded-2xl px-4 py-3',
           'shadow-sm',
           isUser
-            ? 'bg-accent text-white rounded-br-md'
-            : 'bg-surface text-text-primary rounded-bl-md border border-border'
+            ? 'max-w-[85%] bg-accent text-white rounded-br-md'
+            : 'w-full max-w-full bg-surface text-text-primary rounded-bl-md border border-border'
         )}
       >
         <div className="prose prose-sm max-w-none dark:prose-invert m-0">
           {isUser ? (
             <p className="text-white m-0 whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code: ({ node, className, children, ...props }) => {
-                  const match = /language-(\w+)/.exec(className || '');
-                  return match ? (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  ) : (
-                    <code className="bg-surface-hover px-1 py-0.5 rounded text-sm" {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
+            <>
+              {/* Main response content */}
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code: ({ node, className, children, ...props }) => {
+                    const match = /language-(\w+)/.exec(className || '');
+                    return match ? (
+                      <code className={className} {...props}>
+                        {children}
+                      </code>
+                    ) : (
+                      <code className="bg-surface-hover px-1 py-0.5 rounded text-sm" {...props}>
+                        {children}
+                      </code>
+                    );
+                  },
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+              
+              {/* Agent Analysis Breakdown */}
+              {message.agentAnalysis && (
+                <AnalysisBreakdown
+                  state={message.agentAnalysis.state}
+                  decision={message.agentAnalysis.decision}
+                  company={message.agentAnalysis.company}
+                  date={message.agentAnalysis.date}
+                />
+              )}
+            </>
           )}
         </div>
         <div

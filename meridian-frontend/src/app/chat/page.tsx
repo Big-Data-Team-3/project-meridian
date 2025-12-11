@@ -19,10 +19,10 @@ export default function ChatPage(): ReactElement | null {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading, authError, clearAuthError, logout } = useAuth();
   const { activeConversationId, setActiveConversationId } = useConversation();
-  const { messages, sendMessage, isSending, isStreaming, isLoading, error: chatError } = useChat(
+  const { messages, sendMessage, isSending, isStreaming, isLoading, error: chatError, refetchMessages, clearOptimisticMessages } = useChat(
     activeConversationId
   );
-  const { createConversation, isCreating, error: conversationsError } = useConversations();
+  const { createConversation, isCreating, error: conversationsError, refetch: refetchConversations } = useConversations();
   const [sidebarOpen, setSidebarOpen] = useState(true); // Default to open on desktop
   
   // Prepare conversation context for agent streaming
@@ -38,6 +38,19 @@ export default function ChatPage(): ReactElement | null {
       enabled: true,
       onError: (error) => {
         console.error('Agent streaming error:', error);
+        clearOptimisticMessages();
+      },
+      onComplete: () => {
+        console.log('🔄 Streaming complete, refetching messages and conversations');
+        // Clear optimistic messages first to avoid duplicates
+        clearOptimisticMessages();
+        // Small delay to ensure state is cleared
+        setTimeout(() => {
+          // Refetch messages to get the saved agent response from database
+          refetchMessages();
+          // Also refetch conversations to update the conversation list
+          refetchConversations();
+        }, 100);
       },
     },
     activeConversationId || undefined

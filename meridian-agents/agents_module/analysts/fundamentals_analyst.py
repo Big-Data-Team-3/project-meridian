@@ -104,6 +104,7 @@ def create_fundamentals_analyst(model: str = "gpt-4o-mini"):
             return {
                 "messages": updated_messages,
                 "fundamentals_report": report,
+                "sender": "Fundamentals Analyst",
             }
         except Exception as e:
             error_msg = f"Error running fundamentals analyst: {str(e)}"

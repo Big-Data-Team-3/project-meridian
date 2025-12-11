@@ -102,38 +102,62 @@ def get_agent_name(node_name: str) -> str:
 
 
 def detect_agent_from_state(state: Dict[str, Any]) -> Optional[str]:
-    """Detect which agent is active from graph state."""
-    # Check for analyst reports
-    if state.get("market_report") and not state.get("fundamentals_report"):
-        return "Market Analyst"
-    if state.get("fundamentals_report"):
-        return "Fundamentals Analyst"
-    if state.get("sentiment_report") or state.get("news_report"):
-        return "Information Analyst"
+    """
+    Detect which agent is active from graph state by checking what changed.
+    This function is called on EACH chunk, so we detect based on the SENDER field
+    or by checking which fields were just populated.
+    """
+    # Priority 1: Check for 'sender' field in state (most reliable)
+    if "sender" in state and state["sender"]:
+        sender = state["sender"]
+        # Map sender names to display names
+        sender_map = {
+            "market_analyst": "Market Analyst",
+            "fundamentals_analyst": "Fundamentals Analyst", 
+            "information_analyst": "Information Analyst",
+            "bull_researcher": "Bull Researcher",
+            "bear_researcher": "Bear Researcher",
+            "research_manager": "Research Manager",
+            "trader": "Trader",
+            "aggressive_debator": "Aggressive Risk Analyst",
+            "conservative_debator": "Conservative Risk Analyst",
+            "neutral_debator": "Neutral Risk Analyst",
+            "risk_manager": "Risk Manager"
+        }
+        return sender_map.get(sender.lower().replace(" ", "_"), sender)
     
-    # Check debate states
-    debate_state = state.get("investment_debate_state", {})
-    if isinstance(debate_state, dict):
-        if debate_state.get("bull_history"):
-            return "Bull Researcher"
-        if debate_state.get("bear_history"):
-            return "Bear Researcher"
-        if debate_state.get("judge_decision"):
-            return "Research Manager"
+    # Priority 2: Check messages for agent identification
+    messages = state.get("messages", [])
+    if messages and len(messages) > 0:
+        last_msg = messages[-1]
+        if hasattr(last_msg, "name") and last_msg.name:
+            name = last_msg.name.lower()
+            if "market" in name:
+                return "Market Analyst"
+            elif "fundamental" in name:
+                return "Fundamentals Analyst"
+            elif "information" in name or "sentiment" in name:
+                return "Information Analyst"
+            elif "bull" in name:
+                return "Bull Researcher"
+            elif "bear" in name:
+                return "Bear Researcher"
+            elif "research" in name and "manager" in name:
+                return "Research Manager"
+            elif "trader" in name:
+                return "Trader"
+            elif "risk" in name and "manager" in name:
+                return "Risk Manager"
+            elif "aggressive" in name or "risky" in name:
+                return "Aggressive Risk Analyst"
+            elif "conservative" in name or "safe" in name:
+                return "Conservative Risk Analyst"
+            elif "neutral" in name:
+                return "Neutral Risk Analyst"
     
-    risk_state = state.get("risk_debate_state", {})
-    if isinstance(risk_state, dict):
-        if risk_state.get("risky_history"):
-            return "Risky Analyst"
-        if risk_state.get("safe_history"):
-            return "Safe Analyst"
-        if risk_state.get("neutral_history"):
-            return "Neutral Analyst"
-        if risk_state.get("judge_decision"):
-            return "Risk Manager"
-    
-    if state.get("trader_investment_plan"):
-        return "Trader"
+    # Priority 3: Detect from state fields (less reliable, but fallback)
+    # Check if this chunk has new content compared to what we expect
+    # This is tricky because state is cumulative
     
     return None
 

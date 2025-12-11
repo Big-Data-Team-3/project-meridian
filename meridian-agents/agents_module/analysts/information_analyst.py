@@ -129,6 +129,7 @@ def create_information_analyst(model: str = "gpt-4o-mini"):
                 # For backward compatibility with existing code that expects news_report or sentiment_report
                 "news_report": report,
                 "sentiment_report": report,
+                "sender": "Information Analyst",
             }
         except Exception as e:
             error_msg = f"Error running information analyst: {str(e)}"
