@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ConversationProvider } from '@/contexts/ConversationContext';
+import { AgentProvider } from '@/contexts/AgentContext';
 import { useState } from 'react';
 
 export function Providers({ children }: { children: React.ReactNode }): ReactElement {
@@ -24,7 +25,9 @@ export function Providers({ children }: { children: React.ReactNode }): ReactEle
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <AuthProvider>
+          <AgentProvider>
           <ConversationProvider>{children}</ConversationProvider>
+          </AgentProvider>
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

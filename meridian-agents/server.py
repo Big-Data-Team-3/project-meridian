@@ -1,19 +1,26 @@
 # meridian-agents/server.py - Agents Service API
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.openapi.utils import get_openapi
+import json
+import asyncio
 from graph.trading_graph import TradingAgentsGraph
 import uvicorn
 import os
 import traceback
 import threading
 import time
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 # Import models and utilities
 try:
-    from models.requests import AnalyzeRequest
+    from models.requests import (
+        AnalyzeRequest,
+        SingleAgentRequest,
+        MultiAgentRequest,
+        FocusedAnalysisRequest
+    )
     from models.responses import HealthResponse, AnalyzeResponse, ErrorResponse
     from utils.config import get_config
     from utils.logging import setup_logging, get_logger
@@ -23,12 +30,26 @@ try:
         handle_http_exception,
         create_error_response
     )
+    try:
+        from utils.streaming import EventEmitter, AgentStreamEvent
+        from utils.sse_formatter import format_sse_event
+        STREAMING_AVAILABLE = True
+    except ImportError:
+        STREAMING_AVAILABLE = False
+        EventEmitter = None
+        AgentStreamEvent = None
+        format_sse_event = None
 except ImportError:
     # Fallback for direct execution
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent))
-    from models.requests import AnalyzeRequest
+    from models.requests import (
+        AnalyzeRequest,
+        SingleAgentRequest,
+        MultiAgentRequest,
+        FocusedAnalysisRequest
+    )
     from models.responses import HealthResponse, AnalyzeResponse, ErrorResponse
     from utils.config import get_config
     from utils.logging import setup_logging, get_logger
@@ -38,6 +59,15 @@ except ImportError:
         handle_http_exception,
         create_error_response
     )
+    try:
+        from utils.streaming import EventEmitter, AgentStreamEvent
+        from utils.sse_formatter import format_sse_event
+        STREAMING_AVAILABLE = True
+    except ImportError:
+        STREAMING_AVAILABLE = False
+        EventEmitter = None
+        AgentStreamEvent = None
+        format_sse_event = None
 
 # Initialize configuration and logging
 try:
@@ -149,10 +179,18 @@ _graph_lock = threading.Lock()
 _graph_initializing = False
 _graph_init_error: Optional[Exception] = None
 
+# Cache for graphs with specific agent selections
+_graph_cache: Dict[str, TradingAgentsGraph] = {}
+_graph_cache_lock = threading.Lock()
 
-def get_graph() -> TradingAgentsGraph:
+
+def get_graph(selected_analysts: Optional[List[str]] = None) -> TradingAgentsGraph:
     """
     Get or initialize TradingAgentsGraph instance (thread-safe).
+    
+    Args:
+        selected_analysts: Optional list of analyst types. If None, uses default.
+                          If provided, returns a graph with only those analysts.
     
     Returns:
         TradingAgentsGraph instance
@@ -160,8 +198,28 @@ def get_graph() -> TradingAgentsGraph:
     Raises:
         GraphInitializationError: If graph initialization fails
     """
-    global _graph_instance, _graph_initializing, _graph_init_error
+    global _graph_instance, _graph_initializing, _graph_init_error, _graph_cache
     
+    # If specific analysts requested, use cache
+    if selected_analysts is not None:
+        # Sort to ensure consistent cache key
+        cache_key = ",".join(sorted(selected_analysts))
+        
+        with _graph_cache_lock:
+            if cache_key in _graph_cache:
+                return _graph_cache[cache_key]
+            
+            # Create new graph with specific analysts
+            try:
+                logger.info(f"Creating graph with analysts: {selected_analysts}")
+                graph = TradingAgentsGraph(selected_analysts=selected_analysts)
+                _graph_cache[cache_key] = graph
+                return graph
+            except Exception as e:
+                logger.error(f"Failed to create graph with analysts {selected_analysts}: {e}", exc_info=True)
+                raise GraphInitializationError(f"Failed to create graph: {e}") from e
+    
+    # Default graph (all analysts)
     # Double-check locking pattern
     if _graph_instance is not None:
         return _graph_instance
@@ -220,32 +278,31 @@ async def health(request: Request):
             extra={"extra_fields": {"request_id": request_id, "endpoint": "/health", "method": "GET"}}
         )
         
-        # Try to get graph to verify initialization works
+        # Check graph initialization status (non-blocking, quick check)
         graph_initialized = False
         status = "ok"
         error = None
         
-        try:
-            graph = get_graph()
+        # Quick check: if graph is already initialized, we're good
+        if _graph_instance is not None:
             graph_initialized = True
             status = "ok"
+        elif _graph_initializing:
+            # Graph is initializing, service is starting up
+            graph_initialized = False
+            status = "starting"
+            error = "Graph initialization in progress"
+        elif _graph_init_error:
+            # Graph initialization previously failed
+            graph_initialized = False
+            status = "error"
+            error = str(_graph_init_error)
+        else:
+            # Graph not initialized yet, but service is ready
+            # Don't trigger initialization here - let it happen on first request
+            graph_initialized = False
+            status = "ok"
             error = None
-        except GraphInitializationError as graph_error:
-            graph_initialized = False
-            status = "error"
-            error = str(graph_error)
-            logger.warning(
-                f"Graph initialization failed during health check: {graph_error}",
-                extra={"extra_fields": {"request_id": request_id, "error_type": type(graph_error).__name__}}
-            )
-        except Exception as graph_error:
-            graph_initialized = False
-            status = "error"
-            error = str(graph_error)
-            logger.warning(
-                f"Graph initialization failed during health check: {graph_error}",
-                extra={"extra_fields": {"request_id": request_id, "error_type": type(graph_error).__name__}}
-            )
         
         response_time = time.time() - start_time
         
@@ -292,6 +349,36 @@ async def health(request: Request):
             graph_initialized=False,
             error=str(e)
         )
+
+async def _run_analysis_with_streaming(
+    graph: TradingAgentsGraph,
+    company_name: str,
+    trade_date: str,
+    event_emitter: EventEmitter
+) -> tuple[Dict[str, Any], str]:
+    """
+    Run analysis with streaming events.
+    
+    Args:
+        graph: TradingAgentsGraph instance
+        company_name: Company name or ticker
+        trade_date: Trade date
+        event_emitter: EventEmitter for streaming events
+        
+    Returns:
+        Tuple of (final_state, decision)
+    """
+    # Enable streaming on graph
+    graph.enable_event_streaming(event_emitter)
+    
+    # Run analysis (events will be emitted during execution)
+    final_state, decision = await graph.propagate(
+        company_name.strip().upper(),
+        trade_date
+    )
+    
+    return final_state, decision
+
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(request_data: AnalyzeRequest, request: Request):
@@ -409,6 +496,429 @@ async def analyze(request_data: AnalyzeRequest, request: Request):
             exc_info=True
         )
         raise handle_http_exception(e, status_code=500)
+
+
+@app.post("/analyze/stream")
+async def analyze_stream(request_data: AnalyzeRequest, request: Request):
+    """
+    Stream agent analysis in real-time using Server-Sent Events.
+    
+    This endpoint streams progress updates as SSE events during agent execution.
+    Returns both streaming events and final result.
+    """
+    start_time = time.time()
+    request_id = getattr(request.state, "request_id", f"req-{int(time.time() * 1000)}")
+    
+    if not STREAMING_AVAILABLE:
+        raise HTTPException(
+            status_code=501,
+            detail="Streaming not available - streaming utilities not found"
+        )
+    
+    try:
+        # Input validation
+        if not request_data.company_name or not request_data.company_name.strip():
+            raise ValueError("company_name cannot be empty")
+        
+        logger.info(
+            f"Streaming analysis requested",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "endpoint": "/analyze/stream",
+                    "company": request_data.company_name
+                }
+            }
+        )
+        
+        # Get graph
+        graph = get_graph()
+        
+        # Create event emitter and queue for events
+        event_emitter = EventEmitter()
+        event_queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+        
+        def event_callback(event: AgentStreamEvent):
+            """Callback to queue events for SSE streaming."""
+            # Use call_soon_threadsafe to safely add to queue from any thread
+            try:
+                loop.call_soon_threadsafe(event_queue.put_nowait, event)
+            except RuntimeError:
+                # If loop is closed or not running, create new task
+                try:
+                    asyncio.create_task(event_queue.put(event))
+                except:
+                    pass  # Ignore if we can't queue the event
+        
+        event_emitter.on(event_callback)
+        
+        async def event_generator():
+            """Generate SSE events from agent execution."""
+            try:
+                # Start analysis in background
+                analysis_task = asyncio.create_task(
+                    _run_analysis_with_streaming(
+                        graph,
+                        request_data.company_name,
+                        request_data.trade_date,
+                        event_emitter
+                    )
+                )
+                
+                # Stream events while analysis runs
+                final_state = None
+                decision = None
+                analysis_complete = False
+                
+                while not analysis_complete:
+                    try:
+                        # Wait for event or timeout
+                        event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                        yield format_sse_event(event)
+                        
+                        # Check if analysis complete
+                        if event.event_type == "analysis_complete":
+                            analysis_complete = True
+                            # Get final result from task
+                            final_state, decision = await analysis_task
+                            
+                    except asyncio.TimeoutError:
+                        # Check if analysis task is done
+                        if analysis_task.done():
+                            analysis_complete = True
+                            try:
+                                final_state, decision = analysis_task.result()
+                            except Exception as e:
+                                error_event = AgentStreamEvent(
+                                    event_type="error",
+                                    message=f"Analysis failed: {str(e)}"
+                                )
+                                yield format_sse_event(error_event)
+                                return
+                        # Continue waiting for events
+                        continue
+                
+                # Send final result as completion event if not already sent
+                if final_state and decision:
+                    # Extract full response text from state (not just decision)
+                    # Prefer trader_investment_plan as it contains the complete analysis
+                    full_response = (
+                        final_state.get("trader_investment_plan") or
+                        final_state.get("investment_plan") or
+                        final_state.get("investment_debate_state", {}).get("judge_decision") or
+                        final_state.get("risk_debate_state", {}).get("judge_decision") or
+                        decision  # Fallback to decision if nothing else available
+                    )
+                    
+                    # Extract key reports for summary
+                    summary_data = {
+                        "decision": decision,
+                        "company": request_data.company_name,
+                        "date": request_data.trade_date,
+                        "response": str(full_response),  # Full analysis response
+                        "reports": {
+                            "market": final_state.get("market_report", ""),
+                            "fundamentals": final_state.get("fundamentals_report", ""),
+                            "sentiment": final_state.get("sentiment_report", ""),
+                            "news": final_state.get("news_report", "")
+                        }
+                    }
+                    
+                    # Only include serialized state if needed (it's large and may contain non-serializable objects)
+                    # The state will be serialized by format_sse_event if included
+                    complete_event = AgentStreamEvent(
+                        event_type="complete",
+                        message=f"Analysis complete for {request_data.company_name}",
+                        progress=100,
+                        data=summary_data
+                    )
+                    yield format_sse_event(complete_event)
+                    
+            except Exception as e:
+                logger.error(f"Streaming error: {e}", exc_info=True)
+                error_event = AgentStreamEvent(
+                    event_type="error",
+                    message=f"Streaming failed: {str(e)}"
+                )
+                yield format_sse_event(error_event)
+        
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Cache-Control",
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Streaming analysis error: {e}", exc_info=True)
+        raise handle_http_exception(e, status_code=500)
+
+
+@app.post("/analyze/single/{agent_type}", response_model=AnalyzeResponse)
+async def analyze_single_agent(agent_type: str, request_data: SingleAgentRequest, request: Request):
+    """
+    Analyze a company using a single specific agent.
+    
+    Args:
+        agent_type: Type of agent to use ('market', 'fundamentals', or 'information')
+        request_data: Analysis request with company name and trade date
+    
+    Timeout: 60 seconds for single-agent analysis.
+    """
+    start_time = time.time()
+    request_id = getattr(request.state, "request_id", f"req-{int(time.time() * 1000)}")
+    
+    # Validate agent type
+    valid_agents = ["market", "fundamentals", "information"]
+    if agent_type not in valid_agents:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid agent_type: {agent_type}. Must be one of: {valid_agents}"
+        )
+    
+    try:
+        # Input validation
+        if not request_data.company_name or not request_data.company_name.strip():
+            raise ValueError("company_name cannot be empty")
+        
+        logger.info(
+            f"Single-agent analysis requested",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "endpoint": f"/analyze/single/{agent_type}",
+                    "company": request_data.company_name,
+                    "agent_type": agent_type
+                }
+            }
+        )
+        
+        # Get graph with only the specified agent
+        graph = get_graph(selected_analysts=[agent_type])
+        
+        # Process conversation context if provided
+        if request_data.conversation_context:
+            MAX_CONTEXT_MESSAGES = 20
+            context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
+        
+        # Run analysis
+        final_state, decision = await graph.propagate(
+            request_data.company_name.strip().upper(),
+            request_data.trade_date
+        )
+        
+        response_time = time.time() - start_time
+        
+        response = AnalyzeResponse(
+            company=request_data.company_name,
+            date=request_data.trade_date,
+            decision=decision,
+            state=final_state
+        )
+        
+        logger.info(
+            f"Single-agent analysis completed",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "agent_type": agent_type,
+                    "decision": decision,
+                    "response_time": response_time
+                }
+            }
+        )
+        
+        return response
+        
+    except GraphInitializationError as e:
+        raise handle_http_exception(e, status_code=500)
+    except Exception as e:
+        logger.error(f"Single-agent analysis error: {e}", exc_info=True)
+        raise handle_http_exception(e, status_code=500)
+
+
+@app.post("/analyze/multi", response_model=AnalyzeResponse)
+async def analyze_multi_agent(request_data: MultiAgentRequest, request: Request):
+    """
+    Analyze a company using multiple selected agents.
+    
+    Args:
+        request_data: Analysis request with company name, trade date, and agent list
+    
+    Timeout: 120 seconds for multi-agent analysis.
+    """
+    start_time = time.time()
+    request_id = getattr(request.state, "request_id", f"req-{int(time.time() * 1000)}")
+    
+    try:
+        # Validate agents
+        valid_agents = ["market", "fundamentals", "information"]
+        for agent in request_data.agents:
+            if agent not in valid_agents:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid agent: {agent}. Must be one of: {valid_agents}"
+                )
+        
+        if not request_data.company_name or not request_data.company_name.strip():
+            raise ValueError("company_name cannot be empty")
+        
+        logger.info(
+            f"Multi-agent analysis requested",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "endpoint": "/analyze/multi",
+                    "company": request_data.company_name,
+                    "agents": request_data.agents,
+                    "include_debate": request_data.include_debate,
+                    "include_risk": request_data.include_risk
+                }
+            }
+        )
+        
+        # Get graph with selected agents
+        graph = get_graph(selected_analysts=request_data.agents)
+        
+        # Process conversation context if provided
+        if request_data.conversation_context:
+            MAX_CONTEXT_MESSAGES = 20
+            context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
+        
+        # Run analysis
+        final_state, decision = await graph.propagate(
+            request_data.company_name.strip().upper(),
+            request_data.trade_date
+        )
+        
+        response_time = time.time() - start_time
+        
+        response = AnalyzeResponse(
+            company=request_data.company_name,
+            date=request_data.trade_date,
+            decision=decision,
+            state=final_state
+        )
+        
+        logger.info(
+            f"Multi-agent analysis completed",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "agents": request_data.agents,
+                    "decision": decision,
+                    "response_time": response_time
+                }
+            }
+        )
+        
+        return response
+        
+    except GraphInitializationError as e:
+        raise handle_http_exception(e, status_code=500)
+    except Exception as e:
+        logger.error(f"Multi-agent analysis error: {e}", exc_info=True)
+        raise handle_http_exception(e, status_code=500)
+
+
+@app.post("/analyze/focused", response_model=AnalyzeResponse)
+async def analyze_focused(request_data: FocusedAnalysisRequest, request: Request):
+    """
+    Analyze a company with a specific focus area.
+    
+    Args:
+        request_data: Analysis request with company name, trade date, and focus area
+    
+    Focus options:
+        - 'sentiment_only': Information analyst focused on sentiment
+        - 'technical_only': Market analyst focused on technical analysis
+        - 'fundamental_only': Fundamentals analyst focused on financials
+    
+    Timeout: 45 seconds for focused analysis.
+    """
+    start_time = time.time()
+    request_id = getattr(request.state, "request_id", f"req-{int(time.time() * 1000)}")
+    
+    # Map focus to agent
+    focus_to_agent = {
+        "sentiment_only": "information",
+        "technical_only": "market",
+        "fundamental_only": "fundamentals"
+    }
+    
+    if request_data.focus not in focus_to_agent:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid focus: {request_data.focus}. Must be one of: {list(focus_to_agent.keys())}"
+        )
+    
+    try:
+        if not request_data.company_name or not request_data.company_name.strip():
+            raise ValueError("company_name cannot be empty")
+        
+        agent_type = focus_to_agent[request_data.focus]
+        
+        logger.info(
+            f"Focused analysis requested",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "endpoint": "/analyze/focused",
+                    "company": request_data.company_name,
+                    "focus": request_data.focus,
+                    "agent_type": agent_type
+                }
+            }
+        )
+        
+        # Get graph with focused agent
+        graph = get_graph(selected_analysts=[agent_type])
+        
+        # Process conversation context if provided
+        if request_data.conversation_context:
+            MAX_CONTEXT_MESSAGES = 20
+            context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
+        
+        # Run analysis
+        final_state, decision = await graph.propagate(
+            request_data.company_name.strip().upper(),
+            request_data.trade_date
+        )
+        
+        response_time = time.time() - start_time
+        
+        response = AnalyzeResponse(
+            company=request_data.company_name,
+            date=request_data.trade_date,
+            decision=decision,
+            state=final_state
+        )
+        
+        logger.info(
+            f"Focused analysis completed",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "focus": request_data.focus,
+                    "decision": decision,
+                    "response_time": response_time
+                }
+            }
+        )
+        
+        return response
+        
+    except GraphInitializationError as e:
+        raise handle_http_exception(e, status_code=500)
+    except Exception as e:
+        logger.error(f"Focused analysis error: {e}", exc_info=True)
+        raise handle_http_exception(e, status_code=500)
+
 
 # Global exception handler
 @app.exception_handler(Exception)

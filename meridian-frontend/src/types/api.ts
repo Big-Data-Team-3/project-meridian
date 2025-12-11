@@ -20,8 +20,12 @@ export interface SendMessageRequest {
 export interface SendMessageResponse {
   thread_id: string;
   message_id: string;
-  assistant_message_id: string;
-  response: string;
+  assistant_message_id: string | null;
+  response: string | null;
+  use_streaming?: boolean;
+  intent?: string;
+  workflow?: string;
+  agents?: string[];
 }
 
 export interface GetConversationsResponse {
@@ -31,6 +35,8 @@ export interface GetConversationsResponse {
     created_at: string;
     updated_at: string;
     user_id: string | null;
+    message_count?: number;
+    last_message_at?: string | null;
   }>;
 }
 
@@ -52,6 +58,8 @@ export interface CreateConversationResponse {
   created_at: string;
   updated_at: string;
   user_id: string | null;
+  message_count?: number;
+  last_message_at?: string | null;
 }
 
 export interface HealthCheckResponse {

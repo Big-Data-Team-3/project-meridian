@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
-import type { Message, SendMessageRequest, GetMessagesResponse } from '@/types';
+import type { Message, SendMessageRequest, SendMessageResponse, GetMessagesResponse } from '@/types';
 
 export function useChat(conversationId: string | null) {
   const queryClient = useQueryClient();
@@ -66,25 +66,33 @@ export function useChat(conversationId: string | null) {
         throw new Error(response.error || 'Failed to send message');
       }
       
-      // Add optimistic assistant message
-      const optimisticAssistantMessage: Message = {
-        id: response.data.assistant_message_id,
-        role: 'assistant',
-        content: response.data.response,
-        timestamp: new Date(),
-        conversationId: response.data.thread_id,
-      };
-      setOptimisticMessages((prev) => [...prev, optimisticAssistantMessage]);
+      // Only add optimistic assistant message if not using streaming
+      if (!response.data.use_streaming && response.data.response) {
+        const optimisticAssistantMessage: Message = {
+          id: response.data.assistant_message_id || `temp-assistant-${Date.now()}`,
+          role: 'assistant',
+          content: response.data.response,
+          timestamp: new Date(),
+          conversationId: response.data.thread_id,
+        };
+        setOptimisticMessages((prev) => [...prev, optimisticAssistantMessage]);
+      }
       
       return response.data;
     },
     onSuccess: (data) => {
-      // Invalidate and refetch messages to get updated conversation
-      queryClient.invalidateQueries({ queryKey: ['messages', data.thread_id] });
-      queryClient.invalidateQueries({ queryKey: ['conversations'] });
-      setIsStreaming(false);
-      // Clear optimistic messages after refetch
-      setTimeout(() => setOptimisticMessages([]), 1000);
+      // Only invalidate if not using streaming (streaming will handle its own updates)
+      if (!data.use_streaming) {
+        // Invalidate and refetch messages to get updated conversation
+        queryClient.invalidateQueries({ queryKey: ['messages', data.thread_id] });
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        setIsStreaming(false);
+        // Clear optimistic messages after refetch
+        setTimeout(() => setOptimisticMessages([]), 1000);
+      } else {
+        // For streaming, keep streaming state active
+        // setIsStreaming will be set to false when streaming completes
+      }
     },
     onError: (error) => {
       console.error('Failed to send message:', error);
@@ -95,8 +103,17 @@ export function useChat(conversationId: string | null) {
   });
 
   const sendMessage = useCallback(
-    (message: string) => {
-      sendMessageMutation.mutate(message);
+    async (message: string): Promise<SendMessageResponse> => {
+      return new Promise((resolve, reject) => {
+        sendMessageMutation.mutate(message, {
+          onSuccess: (data) => {
+            resolve(data);
+          },
+          onError: (error) => {
+            reject(error);
+          },
+        });
+      });
     },
     [sendMessageMutation]
   );

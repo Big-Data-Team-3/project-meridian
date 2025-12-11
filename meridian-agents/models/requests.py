@@ -75,3 +75,111 @@ class AnalyzeRequest(BaseModel):
             }
         }
 
+
+class SingleAgentRequest(BaseModel):
+    """Request model for single-agent analysis endpoint."""
+    company_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Company name or ticker symbol"
+    )
+    trade_date: str = Field(
+        ...,
+        pattern=r'^\d{4}-\d{2}-\d{2}$',
+        description="Trade date (ISO format: YYYY-MM-DD)"
+    )
+    conversation_context: Optional[List[ConversationMessage]] = Field(
+        None,
+        max_items=50,
+        description="Optional conversation context (last N messages, max 50)"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "company_name": "AAPL",
+                "trade_date": "2024-12-19",
+                "conversation_context": []
+            }
+        }
+
+
+class MultiAgentRequest(BaseModel):
+    """Request model for multi-agent analysis endpoint."""
+    company_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Company name or ticker symbol"
+    )
+    trade_date: str = Field(
+        ...,
+        pattern=r'^\d{4}-\d{2}-\d{2}$',
+        description="Trade date (ISO format: YYYY-MM-DD)"
+    )
+    agents: List[str] = Field(
+        ...,
+        min_items=1,
+        max_items=3,
+        description="List of agent types to include: 'market', 'fundamentals', 'information'"
+    )
+    conversation_context: Optional[List[ConversationMessage]] = Field(
+        None,
+        max_items=50,
+        description="Optional conversation context (last N messages, max 50)"
+    )
+    include_debate: bool = Field(
+        default=False,
+        description="Whether to include debate phase (default: False)"
+    )
+    include_risk: bool = Field(
+        default=False,
+        description="Whether to include risk analysis (default: False)"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "company_name": "AAPL",
+                "trade_date": "2024-12-19",
+                "agents": ["market", "fundamentals"],
+                "include_debate": False,
+                "include_risk": False
+            }
+        }
+
+
+class FocusedAnalysisRequest(BaseModel):
+    """Request model for focused analysis endpoint."""
+    company_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Company name or ticker symbol"
+    )
+    trade_date: str = Field(
+        ...,
+        pattern=r'^\d{4}-\d{2}-\d{2}$',
+        description="Trade date (ISO format: YYYY-MM-DD)"
+    )
+    focus: str = Field(
+        ...,
+        description="Focus area: 'sentiment_only', 'technical_only', 'fundamental_only'"
+    )
+    conversation_context: Optional[List[ConversationMessage]] = Field(
+        None,
+        max_items=50,
+        description="Optional conversation context (last N messages, max 50)"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "company_name": "AAPL",
+                "trade_date": "2024-12-19",
+                "focus": "sentiment_only",
+                "conversation_context": []
+            }
+        }
+
