@@ -23,8 +23,12 @@ class ChatResponse(BaseModel):
     """Response model for chat message."""
     thread_id: str = Field(..., description="Thread identifier")
     message_id: str = Field(..., description="User message ID")
-    assistant_message_id: str = Field(..., description="Assistant response message ID")
-    response: str = Field(..., description="Assistant response content")
+    assistant_message_id: Optional[str] = Field(None, description="Assistant response message ID (None if use_streaming=True)")
+    response: Optional[str] = Field(None, description="Assistant response content (None if use_streaming=True)")
+    use_streaming: bool = Field(False, description="Whether frontend should use streaming endpoint")
+    intent: Optional[str] = Field(None, description="Query intent classification")
+    workflow: Optional[str] = Field(None, description="Agent workflow type (if use_streaming=True)")
+    agents: Optional[list] = Field(None, description="List of agents to be used (if use_streaming=True)")
     
     class Config:
         json_schema_extra = {

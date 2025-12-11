@@ -17,6 +17,7 @@ from api import messages
 from api import chat
 from api import auth
 from api import agents
+from api import streaming
 
 # Configure logging
 logging.basicConfig(
@@ -95,6 +96,7 @@ app.include_router(messages.router)
 app.include_router(chat.router)
 app.include_router(auth.router)
 app.include_router(agents.router)
+app.include_router(streaming.router)
 
 # Server startup
 if __name__ == "__main__":

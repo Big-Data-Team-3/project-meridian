@@ -91,7 +91,7 @@ export function Sidebar({ isOpen, onClose, onNewChat }: SidebarProps): ReactElem
               </div>
             ) : conversations.length === 0 ? (
               <div className="text-text-secondary text-sm text-center py-8">
-                No conversations yet
+                No conversations yet. Start with “+ New Chat”.
               </div>
             ) : (
               <nav className="space-y-1" aria-label="Conversation history">
@@ -108,7 +108,12 @@ export function Sidebar({ isOpen, onClose, onNewChat }: SidebarProps): ReactElem
                         'bg-surface-hover font-medium'
                     )}
                   >
-                    <span className="truncate flex-1">{conversation.title}</span>
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <span className="truncate">{conversation.title}</span>
+                      <span className="text-xs text-text-secondary truncate">
+                        {conversation.updatedAt ? `Updated ${formatDate(conversation.updatedAt)}` : ''}
+                      </span>
+                    </div>
                     <button
                       onClick={(e) => handleDelete(e, conversation.id)}
                       className="opacity-0 group-hover:opacity-100 ml-2 p-1 hover:bg-error/20 rounded transition-opacity"

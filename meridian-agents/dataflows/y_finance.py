@@ -216,11 +216,14 @@ def _get_stock_stats_bulk(
             raise Exception("Stockstats fail: Yahoo Finance data not fetched yet!")
     else:
         # Online data fetching with caching
-        today_date = pd.Timestamp.today()
+        # Use the trade_date (curr_date) as the end date, not today's date
+        # This ensures we analyze data "as of" the trade date, not including future data
         curr_date_dt = pd.to_datetime(curr_date)
         
-        end_date = today_date
-        start_date = today_date - pd.DateOffset(years=15)
+        # Use curr_date as end_date (the date we're trading on)
+        end_date = curr_date_dt
+        # Go back 15 years from the trade date
+        start_date = curr_date_dt - pd.DateOffset(years=15)
         start_date_str = start_date.strftime("%Y-%m-%d")
         end_date_str = end_date.strftime("%Y-%m-%d")
         

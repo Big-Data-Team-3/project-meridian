@@ -11,9 +11,9 @@ class Config:
     """Configuration manager for backend service."""
     
     # Database configuration
-    DB_HOST: str
+    INSTANCE_CONNECTION_NAME: str
     DB_USER: str
-    DB_PASSWORD: str
+    DB_PASS: str
     DB_NAME: str
     DB_TYPE: str = "postgresql"
     
@@ -32,9 +32,9 @@ class Config:
     def __init__(self):
         """Initialize configuration from environment variables."""
         # Database (required)
-        self.DB_HOST = self._get_required("DB_HOST")
+        self.INSTANCE_CONNECTION_NAME = self._get_required("INSTANCE_CONNECTION_NAME")
         self.DB_USER = self._get_required("DB_USER")
-        self.DB_PASSWORD = self._get_required("DB_PASSWORD")
+        self.DB_PASS = self._get_required("DB_PASS")
         self.DB_NAME = self._get_required("DB_NAME")
         self.DB_TYPE = os.getenv("DB_TYPE", "postgresql").lower()
         

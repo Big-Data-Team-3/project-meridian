@@ -6,6 +6,8 @@ import { apiClient } from '@/lib/api';
 import { storage, STORAGE_KEYS } from '@/lib/storage';
 
 interface AuthContextType extends AuthState {
+  authError: string | null;
+  clearAuthError: () => void;
   loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -17,6 +19,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     // Check for stored user and token on mount
@@ -34,16 +37,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           console.log('ℹ️ No stored authentication found');
           setIsAuthenticated(false);
+          setUser(null);
         }
       } catch (error) {
         console.error('❌ Error restoring authentication:', error);
         setIsAuthenticated(false);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
     };
 
     restoreAuth();
+  }, []);
+
+  // Listen for auth-expired events dispatched by apiClient on 401
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleAuthExpired = (event: Event): void => {
+      const custom = event as CustomEvent<{ message?: string }>;
+      const message = custom.detail?.message || 'Session expired. Please sign in again.';
+      setAuthError(message);
+      setUser(null);
+      setIsAuthenticated(false);
+    };
+
+    window.addEventListener('auth-expired', handleAuthExpired as EventListener);
+    return () => window.removeEventListener('auth-expired', handleAuthExpired as EventListener);
   }, []);
 
   const logout = useCallback(async (): Promise<void> => {
@@ -58,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       storage.clear();
       setUser(null);
       setIsAuthenticated(false);
+      setAuthError(null);
       setIsLoading(false);
     }
   }, []);
@@ -88,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       storage.set(STORAGE_KEYS.TOKEN, token);
       setUser(user);
       setIsAuthenticated(true);
+      setAuthError(null);
       
       console.log('✅ Step 8: AuthContext - Authentication complete');
       console.log('   User stored in state and localStorage');
@@ -108,12 +131,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const clearAuthError = useCallback(() => {
+    setAuthError(null);
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
         user,
         isAuthenticated,
         isLoading,
+        authError,
+        clearAuthError,
         loginWithGoogle,
         logout,
         refreshUser,

@@ -84,23 +84,51 @@ class OpenAIService:
             logger.error(f"Unexpected error calling OpenAI API: {e}", exc_info=True)
             raise Exception(f"Failed to get OpenAI response: {str(e)}")
     
-    def format_messages_for_openai(self, conversation_history: List[Dict]) -> List[Dict[str, str]]:
+    def format_messages_for_openai(
+        self, 
+        conversation_history: List[Dict], 
+        include_system_prompt: bool = True
+    ) -> List[Dict[str, str]]:
         """
         Format conversation history for OpenAI API.
         
         Args:
             conversation_history: List of message dicts with 'role' and 'content'
+            include_system_prompt: Whether to include Meridian system prompt
         
         Returns:
             Formatted messages for OpenAI API
         """
-        return [
+        messages = []
+        
+        # Add system prompt if requested
+        if include_system_prompt:
+            system_prompt = """You are Meridian, an intelligent financial analysis assistant powered by a multi-agent AI system. You help users with:
+
+- General questions and conversation
+- Financial market education and concepts
+- Investment strategy discussions
+- Company and stock information
+- Market analysis and insights
+
+While you can handle casual conversation, your primary expertise is in financial markets, investing, and economic analysis. When users ask financial questions, provide thoughtful, well-informed responses. For complex financial analysis requiring real-time data, you can leverage specialized agent workflows.
+
+Be friendly, professional, and helpful. Always maintain the context that you are Meridian, a financial intelligence platform."""
+            messages.append({
+                "role": "system",
+                "content": system_prompt
+            })
+        
+        # Add conversation history
+        messages.extend([
             {
                 "role": msg.get("role", "user"),
                 "content": msg.get("content", "")
             }
             for msg in conversation_history
-        ]
+        ])
+        
+        return messages
 
 
 # Global service instance
