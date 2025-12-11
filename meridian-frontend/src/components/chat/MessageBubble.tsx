@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import type { Message } from '@/types';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { useAgent } from '@/contexts/AgentContext';
 // import 'highlight.js/styles/github-dark.css';
 
 interface MessageBubbleProps {
@@ -15,6 +16,14 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
   const isUser = message.role === 'user';
+  const { setTraceFromMessage, openTrace } = useAgent();
+  
+  const handleViewTrace = () => {
+    if (message.agentTrace) {
+      setTraceFromMessage(message.agentTrace);
+      openTrace();
+    }
+  };
 
   return (
     <div
@@ -59,11 +68,39 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
         </div>
         <div
           className={cn(
-            'text-xs mt-2',
+            'flex items-center justify-between gap-2 mt-2',
             isUser ? 'text-white/70' : 'text-text-secondary'
           )}
         >
-          {formatDate(message.timestamp)}
+          <span className="text-xs">{formatDate(message.timestamp)}</span>
+          {!isUser && message.agentTrace && (
+            <button
+              onClick={handleViewTrace}
+              className={cn(
+                'text-xs px-2 py-1 rounded',
+                'bg-surface-hover hover:bg-surface-tertiary',
+                'text-text-secondary hover:text-text-primary',
+                'transition-colors',
+                'flex items-center gap-1'
+              )}
+              title="View agent trace"
+            >
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+              <span>Trace ({message.agentTrace.agentsCalled.length} agents)</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

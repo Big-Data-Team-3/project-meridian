@@ -18,6 +18,7 @@ interface AgentContextValue {
   toggleTrace: () => void;
   openTrace: () => void;
   closeTrace: () => void;
+  setTraceFromMessage: (trace: AgentTrace) => void;  // Restore trace from persisted message
 }
 
 const AgentContext = createContext<AgentContextValue | undefined>(undefined);
@@ -163,6 +164,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     setIsTraceOpen(false);
   }, []);
 
+  const setTraceFromMessage = useCallback((trace: AgentTrace) => {
+    setTrace(trace);
+    setIsTraceOpen(true);
+  }, []);
+
   const value: AgentContextValue = {
     currentActivity,
     isAgentActive: currentActivity?.status === 'active',
@@ -173,6 +179,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     toggleTrace,
     openTrace,
     closeTrace,
+    setTraceFromMessage,
   };
 
   return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;

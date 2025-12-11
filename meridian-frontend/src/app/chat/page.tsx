@@ -43,7 +43,23 @@ export default function ChatPage(): ReactElement | null {
     activeConversationId || undefined
   );
   
-  const { isTraceOpen, closeTrace } = useAgent();
+  const { isTraceOpen, closeTrace, setTraceFromMessage } = useAgent();
+  
+  // Restore traces from messages when conversation loads
+  useEffect(() => {
+    if (messages.length > 0) {
+      // Find the most recent assistant message with a trace
+      const messageWithTrace = [...messages]
+        .reverse()
+        .find((msg) => msg.role === 'assistant' && msg.agentTrace);
+      
+      if (messageWithTrace && messageWithTrace.agentTrace) {
+        // Optionally restore the trace (but don't auto-open sidebar)
+        // User can click the trace button to view it
+        // setTraceFromMessage(messageWithTrace.agentTrace);
+      }
+    }
+  }, [messages, setTraceFromMessage]);
 
   useEffect(() => {
     // Only redirect if auth loading is complete and user is not authenticated

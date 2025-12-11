@@ -289,6 +289,7 @@ async def stream_agent_analysis(
         async def event_generator():
             final_response_text = None
             message_service = MessageService() if request.thread_id else None
+            agent_trace_events = []  # Collect all trace events for persistence
             
             try:
                 # Emit orchestration start event
@@ -305,6 +306,14 @@ async def stream_agent_analysis(
                     }
                 )
                 yield await format_sse_event(start_event)
+                # Collect orchestration start event for trace persistence
+                agent_trace_events.append({
+                    "event_type": start_event.event_type,
+                    "message": start_event.message,
+                    "timestamp": start_event.timestamp,
+                    "data": start_event.data,
+                    "agent_name": None  # Orchestration events don't have agent_name
+                })
                 
                 # Prepare agent request payload
                 agent_payload = orchestrator.prepare_agent_request(
@@ -339,9 +348,13 @@ async def stream_agent_analysis(
                             response.raise_for_status()
                             async for line in response.aiter_lines():
                                 if line.startswith("data: "):
-                                    # Parse the event to capture final response
+                                    # Parse the event to capture final response and collect for trace
                                     try:
                                         event_data = json.loads(line[6:])  # Remove "data: " prefix
+                                        
+                                        # Collect event for trace persistence
+                                        agent_trace_events.append(event_data)
+                                        
                                         # Capture final response from complete events
                                         if event_data.get("event_type") in ["complete", "analysis_complete"]:
                                             if event_data.get("data") and isinstance(event_data["data"], dict):
@@ -386,11 +399,32 @@ async def stream_agent_analysis(
                     # Save agent response to database if thread_id is provided
                     if request.thread_id and final_response_text and message_service:
                         try:
+                            # Prepare metadata with agent trace
+                            metadata = {
+                                "agent_trace": {
+                                    "events": agent_trace_events,
+                                    "agents_called": list(set(
+                                        evt.get("agent_name") 
+                                        for evt in agent_trace_events 
+                                        if evt.get("agent_name")
+                                    )),
+                                    "intent": intent.value,
+                                    "workflow": workflow.workflow_type
+                                },
+                                "source": "agent_service",
+                                "workflow_type": workflow.workflow_type,
+                                "agents_used": workflow.agents
+                            }
+                            
                             assistant_msg = await message_service.save_assistant_message(
                                 thread_id=request.thread_id,
-                                content=final_response_text
+                                content=final_response_text,
+                                metadata=metadata
                             )
-                            logger.info(f"Saved agent response to thread {request.thread_id}: {assistant_msg['message_id']}")
+                            logger.info(
+                                f"Saved agent response with trace to thread {request.thread_id}: "
+                                f"{assistant_msg['message_id']} ({len(agent_trace_events)} trace events)"
+                            )
                         except Exception as e:
                             logger.error(f"Failed to save agent response to database: {e}", exc_info=True)
                             # Don't fail the request if saving fails
