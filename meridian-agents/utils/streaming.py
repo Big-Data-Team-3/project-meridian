@@ -23,7 +23,8 @@ class AgentStreamEvent:
         self.agent_name = agent_name
         self.progress = progress
         self.data = data or {}
-        self.timestamp = datetime.datetime.now().isoformat()
+        # Use UTC timezone for consistent timestamps across systems
+        self.timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert event to dictionary."""

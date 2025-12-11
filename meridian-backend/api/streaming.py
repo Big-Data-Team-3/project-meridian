@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import httpx
+from httpx import Timeout
 
 from api.auth import require_auth
 from services.agent_orchestrator import get_agent_orchestrator
@@ -21,6 +22,11 @@ from models.query_intent import QueryIntent
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/streaming", tags=["streaming"])
+
+
+def get_utc_timestamp() -> str:
+    """Get current UTC timestamp in ISO format."""
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 class AgentAnalysisRequest(BaseModel):
@@ -78,7 +84,7 @@ async def mock_agent_analysis_stream(company_name: str, trade_date: str) -> Asyn
     start_event = AgentTraceEvent(
         event_type="start",
         message=f"Starting analysis for {company_name} on {trade_date}",
-        timestamp=datetime.datetime.now().isoformat()
+        timestamp=get_utc_timestamp()
     )
     yield await format_sse_event(start_event)
 
@@ -92,7 +98,7 @@ async def mock_agent_analysis_stream(company_name: str, trade_date: str) -> Asyn
             agent_name=agent["name"],
             message=f"{agent['name']} is now analyzing {company_name}",
             progress=total_progress,
-            timestamp=datetime.datetime.now().isoformat()
+            timestamp=get_utc_timestamp()
         )
         yield await format_sse_event(agent_start)
 
@@ -111,7 +117,7 @@ async def mock_agent_analysis_stream(company_name: str, trade_date: str) -> Asyn
                 agent_name=agent["name"],
                 message=f"{agent['name']}: {step}",
                 progress=min(total_progress, 95),  # Cap at 95% until completion
-                timestamp=datetime.datetime.now().isoformat()
+                timestamp=get_utc_timestamp()
             )
             yield await format_sse_event(progress_event)
 
@@ -129,7 +135,7 @@ async def mock_agent_analysis_stream(company_name: str, trade_date: str) -> Asyn
             "confidence": random.uniform(0.6, 0.95),
             "agents_used": [agent["name"] for agent in agents]
         },
-        timestamp=datetime.datetime.now().isoformat()
+        timestamp=get_utc_timestamp()
     )
     yield await format_sse_event(complete_event)
 
@@ -149,7 +155,7 @@ async def real_agent_analysis_stream(company_name: str, trade_date: str, convers
         start_event = AgentTraceEvent(
             event_type="start",
             message=f"Starting agent analysis for {company_name}",
-            timestamp=datetime.datetime.now().isoformat()
+            timestamp=get_utc_timestamp()
         )
         yield await format_sse_event(start_event)
 
@@ -180,7 +186,7 @@ async def real_agent_analysis_stream(company_name: str, trade_date: str, convers
                 "state": result.get("state"),
                 "agents_used": ["Market Analyst", "Fundamental Analyst", "Information Analyst", "Risk Manager"]  # Placeholder
             },
-            timestamp=datetime.datetime.now().isoformat()
+            timestamp=get_utc_timestamp()
         )
         yield await format_sse_event(complete_event)
 
@@ -189,7 +195,7 @@ async def real_agent_analysis_stream(company_name: str, trade_date: str, convers
         error_event = AgentTraceEvent(
             event_type="error",
             message=f"Analysis failed: {str(e)}",
-            timestamp=datetime.datetime.now().isoformat()
+            timestamp=get_utc_timestamp()
         )
         yield await format_sse_event(error_event)
 
@@ -260,7 +266,7 @@ async def stream_agent_analysis(
                 start_event = AgentTraceEvent(
                     event_type="start",
                     message="Processing query directly (no agents required)",
-                    timestamp=datetime.datetime.now().isoformat(),
+                    timestamp=get_utc_timestamp(),
                     data={"intent": intent.value, "workflow": workflow.workflow_type}
                 )
                 yield await format_sse_event(start_event)
@@ -269,7 +275,7 @@ async def stream_agent_analysis(
                     event_type="complete",
                     message="Query processed (direct response)",
                     progress=100,
-                    timestamp=datetime.datetime.now().isoformat(),
+                    timestamp=get_utc_timestamp(),
                     data={"intent": intent.value}
                 )
                 yield await format_sse_event(complete_event)
@@ -297,7 +303,7 @@ async def stream_agent_analysis(
                 start_event = AgentTraceEvent(
                     event_type="orchestration_start",
                     message=f"Detected {intent.value} query, routing to {workflow.workflow_type}",
-                    timestamp=datetime.datetime.now().isoformat(),
+                    timestamp=get_utc_timestamp(),
                     data={
                         "intent": intent.value,
                         "workflow": workflow.workflow_type,
@@ -344,7 +350,14 @@ async def stream_agent_analysis(
                 
                 try:
                     # Proxy the streaming response from the agent service
-                    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                    # Use separate timeouts: short connect timeout, long read timeout for streaming
+                    streaming_timeout = Timeout(
+                        connect=60.0,  # 60 second connection timeout
+                        read=None,     # No read timeout for streaming (let it run until completion)
+                        write=30.0,    # 30 second write timeout
+                        pool=10.0      # 10 second pool timeout
+                    )
+                    async with httpx.AsyncClient(timeout=streaming_timeout) as client:
                         async with client.stream("POST", agent_streaming_url, json=agent_request) as response:
                             response.raise_for_status()
                             async for line in response.aiter_lines():
@@ -447,7 +460,7 @@ async def stream_agent_analysis(
                     error_event = AgentTraceEvent(
                         event_type="error",
                         message=f"Agent service failed: {error_detail}",
-                        timestamp=datetime.datetime.now().isoformat()
+                        timestamp=get_utc_timestamp()
                     )
                     yield await format_sse_event(error_event)
                 except httpx.RequestError as e:
@@ -464,7 +477,7 @@ async def stream_agent_analysis(
                     error_event = AgentTraceEvent(
                         event_type="error",
                         message=f"Agent service unavailable: {error_msg}",
-                        timestamp=datetime.datetime.now().isoformat(),
+                        timestamp=get_utc_timestamp(),
                         data={
                             "agent_url": agent_streaming_url,
                             "error_type": type(e).__name__
@@ -476,7 +489,7 @@ async def stream_agent_analysis(
                     error_event = AgentTraceEvent(
                         event_type="error",
                         message=f"An unexpected error occurred: {str(e)}",
-                        timestamp=datetime.datetime.now().isoformat()
+                        timestamp=get_utc_timestamp()
                     )
                     yield await format_sse_event(error_event)
                     
@@ -485,7 +498,7 @@ async def stream_agent_analysis(
                 error_event = AgentTraceEvent(
                     event_type="error",
                     message=f"Streaming failed: {str(e)}",
-                    timestamp=datetime.datetime.now().isoformat()
+                    timestamp=get_utc_timestamp()
                 )
                 yield await format_sse_event(error_event)
 

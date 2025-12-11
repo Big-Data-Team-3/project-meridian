@@ -10,12 +10,14 @@ from models.query_intent import QueryIntent
 class AgentWorkflowConfig(BaseModel):
     """Configuration for an agent workflow."""
     
-    workflow_type: str = Field(..., description="Type of workflow: 'direct_response', 'single_agent', 'multi_agent', 'full_workflow', 'focused'")
+    workflow_type: str = Field(..., description="Type of workflow: 'direct_response', 'single_agent', 'multi_agent', 'full_workflow', 'focused', 'selective', 'analysis_only', 'trading_only'")
     agents: List[str] = Field(default_factory=list, description="List of agent types to include")
     timeout_seconds: int = Field(..., description="Timeout in seconds for this workflow")
     include_debate: bool = Field(default=False, description="Whether to include debate phase")
     include_risk: bool = Field(default=False, description="Whether to include risk analysis")
     focus: Optional[str] = Field(None, description="Focus area for focused workflows (e.g., 'sentiment_only', 'technical_only')")
+    selective_agents: Optional[List[str]] = Field(None, description="Specific agents to run for selective workflow (overrides default sequence)")
+    skip_agents: Optional[List[str]] = Field(None, description="Agents to skip in the workflow")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional workflow metadata")
 
 
@@ -90,7 +92,9 @@ class AgentWorkflowMapper:
                 timeout_seconds=90,
                 include_debate=False,
                 include_risk=False
-            )
+            ),
+            # Additional selective workflows based on query content analysis
+            # These will be dynamically assigned by the enhanced orchestrator
         }
         
         return workflows.get(intent, workflows[QueryIntent.SIMPLE_CHAT])

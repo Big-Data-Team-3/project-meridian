@@ -168,6 +168,25 @@ class IntentClassificationTestSuite:
             expected_intents=["comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade"]
         ))
 
+        # Category: investment_analysis - Broad investment queries that should trigger full workflow
+        test_threads.append(TestThread(
+            queries=[
+                "Is Apple a good investment?",
+                "Should I invest in Tesla?",
+                "Analyze Microsoft stock for me",
+                "Evaluate NVIDIA as an investment",
+                "What do you think about Amazon stock?",
+                "Is Google worth buying?",
+                "Meta investment opportunity",
+                "Long-term potential of Apple",
+                "Risk analysis for Tesla",
+                "Investment recommendation for Microsoft"
+            ],
+            description="Broad investment analysis - should trigger comprehensive workflow",
+            category="investment_analysis",
+            expected_intents=["comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade"]
+        ))
+
         # Category: news_sentiment - News and sentiment analysis
         test_threads.append(TestThread(
             queries=[
@@ -375,6 +394,7 @@ Available categories:
   - news_sentiment: News and sentiment analysis queries
   - market_overview: Market overview queries (market + information agents)
   - comprehensive_analysis: Comprehensive analysis queries (full workflow)
+  - investment_analysis: Broad investment queries (full workflow)
   - portfolio_review: Portfolio analysis and review queries
   - mixed_conversation: Mixed conversation with various intents
 
@@ -395,6 +415,7 @@ Example usage:
             "news_sentiment",
             "market_overview",
             "comprehensive_analysis",
+            "investment_analysis",
             "portfolio_review",
             "mixed_conversation"
         ],

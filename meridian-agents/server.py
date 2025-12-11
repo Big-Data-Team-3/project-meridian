@@ -19,7 +19,8 @@ try:
         AnalyzeRequest,
         SingleAgentRequest,
         MultiAgentRequest,
-        FocusedAnalysisRequest
+        FocusedAnalysisRequest,
+        SelectiveAnalysisRequest
     )
     from models.responses import HealthResponse, AnalyzeResponse, ErrorResponse
     from utils.config import get_config
@@ -48,7 +49,8 @@ except ImportError:
         AnalyzeRequest,
         SingleAgentRequest,
         MultiAgentRequest,
-        FocusedAnalysisRequest
+        FocusedAnalysisRequest,
+        SelectiveAnalysisRequest
     )
     from models.responses import HealthResponse, AnalyzeResponse, ErrorResponse
     from utils.config import get_config
@@ -184,13 +186,84 @@ _graph_cache: Dict[str, TradingAgentsGraph] = {}
 _graph_cache_lock = threading.Lock()
 
 
-def get_graph(selected_analysts: Optional[List[str]] = None) -> TradingAgentsGraph:
+def clean_state_for_response(state: Dict[str, Any], include_debate: bool = True, include_risk: bool = True) -> Dict[str, Any]:
+    """
+    Clean state dictionary for response by removing empty fields and unused phases.
+    
+    Args:
+        state: Raw state dictionary from graph execution
+        include_debate: Whether debate phase was used
+        include_risk: Whether risk phase was used
+    
+    Returns:
+        Cleaned state dictionary with only relevant fields
+    """
+    cleaned = {}
+    
+    # Include reports (only if they have content)
+    report_fields = [
+        "market_report",
+        "fundamentals_report", 
+        "sentiment_report",
+        "news_report",
+        "information_report",
+        "investment_plan",
+        "trader_investment_plan",
+        "final_trade_decision"
+    ]
+    
+    for field in report_fields:
+        if field in state and isinstance(state[field], str) and state[field].strip():
+            cleaned[field] = state[field]
+    
+    # Only include debate state if debate phase was used and has content
+    if include_debate and "investment_debate_state" in state:
+        debate_state = state["investment_debate_state"]
+        has_content = any([
+            debate_state.get("bull_history", "").strip(),
+            debate_state.get("bear_history", "").strip(),
+            debate_state.get("judge_decision", "").strip()
+        ])
+        if has_content:
+            cleaned["investment_debate_state"] = {
+                "bull_history": debate_state.get("bull_history", ""),
+                "bear_history": debate_state.get("bear_history", ""),
+                "judge_decision": debate_state.get("judge_decision", "")
+            }
+    
+    # Only include risk state if risk phase was used and has content
+    if include_risk and "risk_debate_state" in state:
+        risk_state = state["risk_debate_state"]
+        has_content = any([
+            risk_state.get("risky_history", "").strip(),
+            risk_state.get("safe_history", "").strip(),
+            risk_state.get("neutral_history", "").strip(),
+            risk_state.get("judge_decision", "").strip()
+        ])
+        if has_content:
+            cleaned["risk_debate_state"] = {
+                "risky_history": risk_state.get("risky_history", ""),
+                "safe_history": risk_state.get("safe_history", ""),
+                "neutral_history": risk_state.get("neutral_history", ""),
+                "judge_decision": risk_state.get("judge_decision", "")
+            }
+    
+    return cleaned
+
+
+def get_graph(
+    selected_analysts: Optional[List[str]] = None,
+    include_debate: bool = True,
+    include_risk: bool = True
+) -> TradingAgentsGraph:
     """
     Get or initialize TradingAgentsGraph instance (thread-safe).
     
     Args:
         selected_analysts: Optional list of analyst types. If None, uses default.
                           If provided, returns a graph with only those analysts.
+        include_debate: Whether to include research debate phase (default: True)
+        include_risk: Whether to include risk analysis phase (default: True)
     
     Returns:
         TradingAgentsGraph instance
@@ -200,19 +273,24 @@ def get_graph(selected_analysts: Optional[List[str]] = None) -> TradingAgentsGra
     """
     global _graph_instance, _graph_initializing, _graph_init_error, _graph_cache
     
-    # If specific analysts requested, use cache
+    # If specific analysts requested, use cache with workflow flags
     if selected_analysts is not None:
-        # Sort to ensure consistent cache key
-        cache_key = ",".join(sorted(selected_analysts))
+        # Create cache key including workflow flags
+        analysts_str = ",".join(sorted(selected_analysts))
+        cache_key = f"{analysts_str}|debate:{include_debate}|risk:{include_risk}"
         
         with _graph_cache_lock:
             if cache_key in _graph_cache:
                 return _graph_cache[cache_key]
             
-            # Create new graph with specific analysts
+            # Create new graph with specific analysts and workflow flags
             try:
-                logger.info(f"Creating graph with analysts: {selected_analysts}")
-                graph = TradingAgentsGraph(selected_analysts=selected_analysts)
+                logger.info(f"Creating graph with analysts: {selected_analysts}, include_debate={include_debate}, include_risk={include_risk}")
+                graph = TradingAgentsGraph(
+                    selected_analysts=selected_analysts,
+                    include_debate=include_debate,
+                    include_risk=include_risk
+                )
                 _graph_cache[cache_key] = graph
                 return graph
             except Exception as e:
@@ -449,11 +527,18 @@ async def analyze(request_data: AnalyzeRequest, request: Request):
         
         response_time = time.time() - start_time
         
+        # Clean state for response (remove empty fields and unused phases)
+        cleaned_state = clean_state_for_response(
+            final_state,
+            include_debate=graph.include_debate,
+            include_risk=graph.include_risk
+        )
+        
         response = AnalyzeResponse(
             company=request_data.company_name,
             date=request_data.trade_date,
             decision=decision,
-            state=final_state
+            state=cleaned_state
         )
         
         logger.info(
@@ -531,8 +616,29 @@ async def analyze_stream(request_data: AnalyzeRequest, request: Request):
             }
         )
         
-        # Get graph
-        graph = get_graph()
+        # Get graph - use selective agents if provided
+        if request_data.selective_agents:
+            # Filter to data-gathering agents only (market, information, fundamentals)
+            data_agents = [agent for agent in request_data.selective_agents
+                          if agent in ["market", "information", "fundamentals"]]
+            if not data_agents:
+                raise ValueError("At least one data-gathering agent (market, information, fundamentals) must be selected")
+            
+            # Determine if debate/risk phases are needed based on selective_agents list
+            debate_agents = ["bull_researcher", "bear_researcher", "research_manager", "trader"]
+            risk_agents = ["risky_analyst", "neutral_analyst", "safe_analyst", "risk_judge"]
+            include_debate = any(agent in request_data.selective_agents for agent in debate_agents)
+            include_risk = any(agent in request_data.selective_agents for agent in risk_agents)
+            
+            logger.info(f"Using selective agents for streaming: {data_agents}, include_debate={include_debate}, include_risk={include_risk}")
+            graph = get_graph(
+                selected_analysts=data_agents,
+                include_debate=include_debate,
+                include_risk=include_risk
+            )
+        else:
+            # Default: use all agents with full workflow
+            graph = get_graph()
         
         # Create event emitter and queue for events
         event_emitter = EventEmitter()
@@ -698,8 +804,12 @@ async def analyze_single_agent(agent_type: str, request_data: SingleAgentRequest
             }
         )
         
-        # Get graph with only the specified agent
-        graph = get_graph(selected_analysts=[agent_type])
+        # Get graph with only the specified agent, no debate or risk for single-agent queries
+        graph = get_graph(
+            selected_analysts=[agent_type],
+            include_debate=False,
+            include_risk=False
+        )
         
         # Process conversation context if provided
         if request_data.conversation_context:
@@ -714,11 +824,18 @@ async def analyze_single_agent(agent_type: str, request_data: SingleAgentRequest
         
         response_time = time.time() - start_time
         
+        # Clean state for response (remove empty fields and unused phases)
+        cleaned_state = clean_state_for_response(
+            final_state,
+            include_debate=graph.include_debate,
+            include_risk=graph.include_risk
+        )
+        
         response = AnalyzeResponse(
             company=request_data.company_name,
             date=request_data.trade_date,
             decision=decision,
-            state=final_state
+            state=cleaned_state
         )
         
         logger.info(
@@ -782,8 +899,12 @@ async def analyze_multi_agent(request_data: MultiAgentRequest, request: Request)
             }
         )
         
-        # Get graph with selected agents
-        graph = get_graph(selected_analysts=request_data.agents)
+        # Get graph with selected agents and workflow flags
+        graph = get_graph(
+            selected_analysts=request_data.agents,
+            include_debate=request_data.include_debate,
+            include_risk=request_data.include_risk
+        )
         
         # Process conversation context if provided
         if request_data.conversation_context:
@@ -798,11 +919,18 @@ async def analyze_multi_agent(request_data: MultiAgentRequest, request: Request)
         
         response_time = time.time() - start_time
         
+        # Clean state for response (remove empty fields and unused phases)
+        cleaned_state = clean_state_for_response(
+            final_state,
+            include_debate=graph.include_debate,
+            include_risk=graph.include_risk
+        )
+        
         response = AnalyzeResponse(
             company=request_data.company_name,
             date=request_data.trade_date,
             decision=decision,
-            state=final_state
+            state=cleaned_state
         )
         
         logger.info(
@@ -876,8 +1004,12 @@ async def analyze_focused(request_data: FocusedAnalysisRequest, request: Request
             }
         )
         
-        # Get graph with focused agent
-        graph = get_graph(selected_analysts=[agent_type])
+        # Get graph with focused agent, no debate or risk for focused queries
+        graph = get_graph(
+            selected_analysts=[agent_type],
+            include_debate=False,
+            include_risk=False
+        )
         
         # Process conversation context if provided
         if request_data.conversation_context:
@@ -892,11 +1024,18 @@ async def analyze_focused(request_data: FocusedAnalysisRequest, request: Request
         
         response_time = time.time() - start_time
         
+        # Clean state for response (remove empty fields and unused phases)
+        cleaned_state = clean_state_for_response(
+            final_state,
+            include_debate=graph.include_debate,
+            include_risk=graph.include_risk
+        )
+        
         response = AnalyzeResponse(
             company=request_data.company_name,
             date=request_data.trade_date,
             decision=decision,
-            state=final_state
+            state=cleaned_state
         )
         
         logger.info(
@@ -917,6 +1056,130 @@ async def analyze_focused(request_data: FocusedAnalysisRequest, request: Request
         raise handle_http_exception(e, status_code=500)
     except Exception as e:
         logger.error(f"Focused analysis error: {e}", exc_info=True)
+        raise handle_http_exception(e, status_code=500)
+
+
+@app.post("/analyze/selective", response_model=AnalyzeResponse)
+async def analyze_selective(request_data: SelectiveAnalysisRequest, request: Request):
+    """
+    Analyze a company using a selective set of agents.
+
+    Args:
+        request_data: Analysis request with company name, trade date, and selective agents
+
+    Selective agents can include:
+        - Analysts: "market", "information", "fundamentals"
+        - Researchers: "bull_researcher", "bear_researcher", "research_manager"
+        - Traders: "trader"
+        - Risk analysts: "risky_analyst", "neutral_analyst", "safe_analyst", "risk_judge"
+
+    Timeout: Dynamic based on number of agents (15s per agent, min 60s).
+    """
+    start_time = time.time()
+    request_id = getattr(request.state, "request_id", f"req-{int(time.time() * 1000)}")
+
+    try:
+        # Input validation
+        if not request_data.company_name or not request_data.company_name.strip():
+            raise ValueError("company_name cannot be empty")
+
+        if not request_data.trade_date:
+            raise ValueError("trade_date is required")
+
+        # Validate selective agents
+        valid_agents = {
+            "market", "information", "fundamentals",
+            "bull_researcher", "bear_researcher", "research_manager",
+            "trader",
+            "risky_analyst", "neutral_analyst", "safe_analyst", "risk_judge"
+        }
+
+        invalid_agents = [agent for agent in request_data.selective_agents if agent not in valid_agents]
+        if invalid_agents:
+            raise ValueError(f"Invalid agents: {invalid_agents}. Valid agents: {sorted(valid_agents)}")
+
+        logger.info(
+            f"Selective analysis requested",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "endpoint": "/analyze/selective",
+                    "company": request_data.company_name,
+                    "selective_agents": request_data.selective_agents,
+                    "include_debate": request_data.include_debate,
+                    "include_risk": request_data.include_risk
+                }
+            }
+        )
+
+        # Create selective graph with only the requested agents
+        # Filter to data-gathering agents only (market, information, fundamentals)
+        data_agents = [agent for agent in request_data.selective_agents
+                      if agent in ["market", "information", "fundamentals"]]
+
+        if not data_agents:
+            raise ValueError("At least one data-gathering agent (market, information, fundamentals) must be selected")
+
+        graph = get_graph(
+            selected_analysts=data_agents,
+            include_debate=request_data.include_debate,
+            include_risk=request_data.include_risk
+        )
+
+        # Process conversation context if provided
+        context_messages = None
+        if request_data.conversation_context:
+            MAX_CONTEXT_MESSAGES = 20
+            context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
+
+            context_messages = [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp
+                }
+                for msg in context_list
+            ]
+
+        # Run selective analysis
+        final_state, decision = await graph.propagate(
+            request_data.company_name.strip().upper(),
+            request_data.trade_date
+        )
+
+        response_time = time.time() - start_time
+
+        # Clean state for response (remove empty fields and unused phases)
+        cleaned_state = clean_state_for_response(
+            final_state,
+            include_debate=graph.include_debate,
+            include_risk=graph.include_risk
+        )
+
+        response = AnalyzeResponse(
+            company=request_data.company_name,
+            date=request_data.trade_date,
+            decision=decision,
+            state=cleaned_state
+        )
+
+        logger.info(
+            f"Selective analysis completed",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "company": request_data.company_name,
+                    "decision": decision,
+                    "response_time": response_time,
+                    "agents_used": len(request_data.selective_agents)
+                }
+            }
+        )
+
+        return response
+
+    except Exception as e:
+        logger.error(f"Selective analysis error: {e}", exc_info=True)
         raise handle_http_exception(e, status_code=500)
 
 

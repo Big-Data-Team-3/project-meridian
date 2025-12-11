@@ -45,6 +45,8 @@ class TradingAgentsGraph:
         selected_analysts=["market", "information", "fundamentals"],
         debug=False,
         config: Dict[str, Any] = None,
+        include_debate: bool = True,
+        include_risk: bool = True,
     ):
         """Initialize the trading agents graph and components.
 
@@ -52,6 +54,8 @@ class TradingAgentsGraph:
             selected_analysts: List of analyst types to include
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
+            include_debate: Whether to include research debate phase (Bull/Bear/Research Manager)
+            include_risk: Whether to include risk analysis phase (Risky/Safe/Neutral/Risk Judge)
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
@@ -108,15 +112,21 @@ class TradingAgentsGraph:
         self.ticker = None
         self.log_states_dict = {}  # date to full state dict
         
-        # Store selected analysts for streaming
+        # Store selected analysts and workflow flags for streaming
         self.selected_analysts = selected_analysts
+        self.include_debate = include_debate
+        self.include_risk = include_risk
         
         # Streaming support
         self.event_emitter: Optional[EventEmitter] = None
         self.enable_streaming = False
 
-        # Set up the graph
-        self.graph = self.graph_setup.setup_graph(selected_analysts)
+        # Set up the graph with workflow flags
+        self.graph = self.graph_setup.setup_graph(
+            selected_analysts=selected_analysts,
+            include_debate=include_debate,
+            include_risk=include_risk
+        )
     
     def enable_event_streaming(self, event_emitter: Optional[EventEmitter] = None):
         """Enable event streaming for agent execution."""
@@ -153,9 +163,12 @@ class TradingAgentsGraph:
             )
             self.event_emitter.emit(start_event)
 
-        # Initialize state
+        # Initialize state with workflow flags
         init_agent_state = self.propagator.create_initial_state(
-            company_name, trade_date
+            company_name, 
+            trade_date,
+            include_debate=self.include_debate,
+            include_risk=self.include_risk
         )
         args = self.propagator.get_graph_args()
 
@@ -280,17 +293,38 @@ class TradingAgentsGraph:
         # Log state
         self._log_state(trade_date, final_state)
 
-        # Return decision and processed signal
-        return final_state, self.process_signal(final_state.get("final_trade_decision", "HOLD"))
+        # Extract decision - for single-agent queries without trader/risk, use report content
+        # or default to "HOLD" if no explicit decision found
+        decision = "HOLD"
+        if self.include_risk and final_state.get("final_trade_decision"):
+            # Full workflow - use risk manager's decision
+            decision = self.process_signal(final_state.get("final_trade_decision"))
+        elif self.include_debate and final_state.get("trader_investment_plan"):
+            # Has trader but no risk - use trader's plan
+            decision = self.process_signal(final_state.get("trader_investment_plan"))
+        elif final_state.get("final_trade_decision"):
+            # Fallback to any decision found
+            decision = self.process_signal(final_state.get("final_trade_decision"))
+        else:
+            # Single-agent query - try to extract from market report or use default
+            market_report = final_state.get("market_report", "")
+            if "FINAL TRANSACTION PROPOSAL:" in market_report:
+                # Extract decision from market report if present
+                decision = self.process_signal(market_report)
+            else:
+                # No explicit decision - use "HOLD" as default
+                decision = "HOLD"
+
+        return final_state, decision
 
     def _prepare_serializable_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Prepare state for JSON serialization by removing non-serializable objects.
-        Keeps all string reports and debate states.
+        Only includes fields that have content and were actually used in the workflow.
         """
         serializable = {}
         
-        # Include all string reports
+        # Include string reports (only if they have content)
         string_fields = [
             "market_report",
             "fundamentals_report", 
@@ -303,59 +337,75 @@ class TradingAgentsGraph:
         ]
         
         for field in string_fields:
-            if field in state and isinstance(state[field], str):
+            if field in state and isinstance(state[field], str) and state[field].strip():
                 serializable[field] = state[field]
         
-        # Include debate states (they contain string histories)
-        if "investment_debate_state" in state:
+        # Only include debate state if debate phase was actually used
+        if self.include_debate and "investment_debate_state" in state:
             debate_state = state["investment_debate_state"]
-            serializable["investment_debate_state"] = {
-                "bull_history": debate_state.get("bull_history", ""),
-                "bear_history": debate_state.get("bear_history", ""),
-                "judge_decision": debate_state.get("judge_decision", "")
-            }
+            # Only include if there's actual content
+            has_debate_content = any([
+                debate_state.get("bull_history", "").strip(),
+                debate_state.get("bear_history", "").strip(),
+                debate_state.get("judge_decision", "").strip()
+            ])
+            if has_debate_content:
+                serializable["investment_debate_state"] = {
+                    "bull_history": debate_state.get("bull_history", ""),
+                    "bear_history": debate_state.get("bear_history", ""),
+                    "judge_decision": debate_state.get("judge_decision", "")
+                }
         
-        if "risk_debate_state" in state:
+        # Only include risk state if risk phase was actually used
+        if self.include_risk and "risk_debate_state" in state:
             risk_state = state["risk_debate_state"]
-            serializable["risk_debate_state"] = {
-                "risky_history": risk_state.get("risky_history", ""),
-                "safe_history": risk_state.get("safe_history", ""),
-                "neutral_history": risk_state.get("neutral_history", ""),
-                "judge_decision": risk_state.get("judge_decision", "")
-            }
+            # Only include if there's actual content
+            has_risk_content = any([
+                risk_state.get("risky_history", "").strip(),
+                risk_state.get("safe_history", "").strip(),
+                risk_state.get("neutral_history", "").strip(),
+                risk_state.get("judge_decision", "").strip()
+            ])
+            if has_risk_content:
+                serializable["risk_debate_state"] = {
+                    "risky_history": risk_state.get("risky_history", ""),
+                    "safe_history": risk_state.get("safe_history", ""),
+                    "neutral_history": risk_state.get("neutral_history", ""),
+                    "judge_decision": risk_state.get("judge_decision", "")
+                }
         
         return serializable
     
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
+        # Safely extract debate state fields with defaults
+        investment_debate = final_state.get("investment_debate_state", {})
+        risk_debate = final_state.get("risk_debate_state", {})
+        
         self.log_states_dict[str(trade_date)] = {
-            "company_of_interest": final_state["company_of_interest"],
-            "trade_date": final_state["trade_date"],
-            "market_report": final_state["market_report"],
-            "sentiment_report": final_state["sentiment_report"],
-            "news_report": final_state["news_report"],
-            "fundamentals_report": final_state["fundamentals_report"],
+            "company_of_interest": final_state.get("company_of_interest", ""),
+            "trade_date": final_state.get("trade_date", ""),
+            "market_report": final_state.get("market_report", ""),
+            "sentiment_report": final_state.get("sentiment_report", ""),
+            "news_report": final_state.get("news_report", ""),
+            "fundamentals_report": final_state.get("fundamentals_report", ""),
             "investment_debate_state": {
-                "bull_history": final_state["investment_debate_state"]["bull_history"],
-                "bear_history": final_state["investment_debate_state"]["bear_history"],
-                "history": final_state["investment_debate_state"]["history"],
-                "current_response": final_state["investment_debate_state"][
-                    "current_response"
-                ],
-                "judge_decision": final_state["investment_debate_state"][
-                    "judge_decision"
-                ],
+                "bull_history": investment_debate.get("bull_history", ""),
+                "bear_history": investment_debate.get("bear_history", ""),
+                "history": investment_debate.get("history", ""),
+                "current_response": investment_debate.get("current_response", ""),
+                "judge_decision": investment_debate.get("judge_decision", ""),
             },
-            "trader_investment_decision": final_state["trader_investment_plan"],
+            "trader_investment_decision": final_state.get("trader_investment_plan", ""),
             "risk_debate_state": {
-                "risky_history": final_state["risk_debate_state"]["risky_history"],
-                "safe_history": final_state["risk_debate_state"]["safe_history"],
-                "neutral_history": final_state["risk_debate_state"]["neutral_history"],
-                "history": final_state["risk_debate_state"]["history"],
-                "judge_decision": final_state["risk_debate_state"]["judge_decision"],
+                "risky_history": risk_debate.get("risky_history", ""),
+                "safe_history": risk_debate.get("safe_history", ""),
+                "neutral_history": risk_debate.get("neutral_history", ""),
+                "history": risk_debate.get("history", ""),
+                "judge_decision": risk_debate.get("judge_decision", ""),
             },
-            "investment_plan": final_state["investment_plan"],
-            "final_trade_decision": final_state["final_trade_decision"],
+            "investment_plan": final_state.get("investment_plan", ""),
+            "final_trade_decision": final_state.get("final_trade_decision", ""),
         }
 
         # Save to file
