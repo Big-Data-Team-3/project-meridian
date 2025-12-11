@@ -350,14 +350,15 @@ class MeridianTestSuite:
         test_threads = []
         
         # Category: simple_chat - No agents, direct OpenAI responses
+        # Simple queries that test Meridian's identity awareness and basic conversational ability
         test_threads.append(TestThread(
             thread_id="",
             queries=[
-                "Hello! How are you today?",
-                "What's the weather like?",
-                "Can you tell me a joke?",
-                "What's your favorite programming language?",
-                "Do you like pineapple on pizza?"
+                "Hello! What are you?",
+                "What can you help me with?",
+                "Tell me about yourself",
+                "What is Meridian?",
+                "How can you help me with investing?"
             ],
             description="Simple chat - no agents",
             category="simple_chat",
