@@ -25,13 +25,29 @@ export function useChat(conversationId: string | null) {
       }
       // Map backend messages to frontend messages
       const backendMessages = response.data.messages || [];
-      const messages = backendMessages.map((msg) => ({
-        id: msg.message_id,
-        role: msg.role as Message['role'],
-        content: msg.content,
-        timestamp: new Date(msg.timestamp),
-        conversationId: msg.thread_id,
-      }));
+      const messages = backendMessages.map((msg) => {
+        // Extract agent trace from metadata if present
+        let agentTrace: Message['agentTrace'] = undefined;
+        if (msg.metadata?.agent_trace) {
+          const traceData = msg.metadata.agent_trace;
+          agentTrace = {
+            events: traceData.events || [],
+            agentsCalled: traceData.agents_called || [],
+            totalProgress: 100, // Completed messages are always 100%
+            startTime: new Date(msg.timestamp), // Use message timestamp as start
+            endTime: new Date(msg.timestamp), // Use message timestamp as end
+          };
+        }
+        
+        return {
+          id: msg.message_id,
+          role: msg.role as Message['role'],
+          content: msg.content,
+          timestamp: new Date(msg.timestamp),
+          conversationId: msg.thread_id,
+          agentTrace,
+        };
+      });
       return { messages, conversationId: response.data.thread_id };
     },
     enabled: !!conversationId && isAuthenticated && !authLoading, // Only fetch when authenticated
