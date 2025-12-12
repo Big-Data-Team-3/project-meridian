@@ -82,6 +82,36 @@ class QueryClassifier:
         except Exception as e:
             logger.error(f"LLM classification failed for query '{query[:50]}...': {e}")
             raise RuntimeError(f"Query classification failed: {e}")
+    
+    def classify_with_entities(
+        self, 
+        query: str, 
+        conversation_context: Optional[List[dict]] = None
+    ) -> Optional[QueryClassification]:
+        """
+        Classify a user query and return full classification including entities.
+        
+        Args:
+            query: User query text
+            conversation_context: Optional conversation history for context
+            
+        Returns:
+            QueryClassification object with intent, entities, and other metadata, or None if classification fails
+        """
+        if not query or not query.strip():
+            return None
+        
+        try:
+            result = self._classify_with_llm(query, conversation_context)
+            if result:
+                logger.debug(
+                    f"LLM classified '{query[:50]}...' as {result.intent.value} "
+                    f"(confidence: {result.confidence}, entities: {result.entities})"
+                )
+            return result
+        except Exception as e:
+            logger.error(f"LLM classification with entities failed for query '{query[:50]}...': {e}")
+            return None
 
     def _classify_with_llm(self, query: str, context: Optional[List[dict]] = None) -> Optional[QueryClassification]:
         """Classify using LLM with structured output."""
@@ -172,7 +202,18 @@ class QueryClassifier:
         8. Questions about the AI itself (you/Meridian) are always SIMPLE_CHAT, never requiring agent workflows
         9. When uncertain between specific analysis types (technical/fundamental) and comprehensive, choose COMPREHENSIVE_TRADE for investment contexts
 
-        Output a JSON object with your classification, confidence score, and brief reasoning.
+        ENTITY EXTRACTION:
+        - Extract ALL company names and ticker symbols mentioned in the query
+        - Include both company names (e.g., "Apple", "Tesla", "Microsoft") AND ticker symbols (e.g., "AAPL", "TSLA", "MSFT")
+        - For company names, also include their ticker symbol if you know it (e.g., "Apple" -> include "AAPL" in entities)
+        - Extract entities from conversation context if relevant
+        - Examples:
+          * "Should I buy Apple?" -> entities: ["Apple", "AAPL"]
+          * "Tell me about TSLA" -> entities: ["TSLA", "Tesla"]
+          * "What's the P/E ratio for Microsoft?" -> entities: ["Microsoft", "MSFT"]
+          * "Compare Apple and Tesla" -> entities: ["Apple", "AAPL", "Tesla", "TSLA"]
+
+        Output a JSON object with your classification, confidence score, brief reasoning, and extracted entities.
         """
 
     def _format_context(self, context: List[dict]) -> str:

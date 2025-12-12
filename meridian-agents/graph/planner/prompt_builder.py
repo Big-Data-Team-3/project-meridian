@@ -131,8 +131,24 @@ For queries asking about SPECIFIC topics, use ONLY the relevant single agent:
 
 4. COMPREHENSIVE/INVESTMENT QUERIES → Use multiple agents
    - Examples: "Should I buy Apple?", "Is Tesla a good investment?", "Analyze MSFT for trading"
-   - Keywords: "should I buy", "investment", "trading decision", "comprehensive analysis"
-   - Include: market_analyst, fundamentals_analyst, information_analyst, and debate/risk phases
+   - Keywords: "should I buy", "should I sell", "hold", "investment", "trading decision", "signal", "recommendation", "entry", "exit"
+   - REQUIRED AGENT SET AND ORDER (respect dependencies):
+     agents: [
+       market_analyst,
+       fundamentals_analyst,
+       information_analyst,
+       bull_researcher,
+       bear_researcher,
+       research_manager,
+       trader,
+       risky_debator,
+       safe_debator,
+       neutral_debator,
+       risk_manager
+     ]
+     execution_order: same order as above
+     criticality_map: mark all as "critical" except neutral_debator can be "non-critical"
+   - Never drop the risk/debate stack for buy/sell/hold queries
 
 ## CRITICAL RULE: ALL COMPANY QUERIES REQUIRE AT LEAST ONE AGENT
 - If a query mentions a company name or ticker symbol, you MUST include at least one agent

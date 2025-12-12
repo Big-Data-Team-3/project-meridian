@@ -134,8 +134,9 @@ def create_market_analyst(model: str = "gpt-4o-mini"):
             updated_messages.append(AIMessage(content=error_msg))
             
             return {
-                "messages": updated_messages,
-                "market_report": error_msg,
-            }
+    "messages": updated_messages,
+    "market_report": error_msg,
+    "sender": "Market Analyst",  # ← MISSING!
+}
 
     return market_analyst_node

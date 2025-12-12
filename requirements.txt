@@ -55,6 +55,7 @@ nest-asyncio
 # OpenAI Chat Application
 openai
 instructor
+
 # Cloud SQL
 pg8000
 cloud-sql-python-connector[pg8000]    

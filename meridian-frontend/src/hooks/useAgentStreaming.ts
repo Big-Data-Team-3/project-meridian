@@ -61,35 +61,16 @@ export function useAgentStreaming(
           throw new Error('No authentication token found');
         }
 
-        // Extract company name from message (simple heuristic)
-        const companyNames: Record<string, string> = {
-          'aapl': 'AAPL', 'apple': 'AAPL',
-          'tsla': 'TSLA', 'tesla': 'TSLA',
-          'msft': 'MSFT', 'microsoft': 'MSFT',
-          'amzn': 'AMZN', 'amazon': 'AMZN',
-          'googl': 'GOOGL', 'google': 'GOOGL', 'alphabet': 'GOOGL',
-          'nvda': 'NVDA', 'nvidia': 'NVDA',
-          'meta': 'META', 'facebook': 'META',
-          'nflx': 'NFLX', 'netflix': 'NFLX',
-          'btc': 'BTC', 'bitcoin': 'BTC',
-          'eth': 'ETH', 'ethereum': 'ETH',
-        };
-        
-        const messageLower = message.toLowerCase();
-        let companyName: string | undefined = undefined;
-        
-        for (const [key, ticker] of Object.entries(companyNames)) {
-          if (messageLower.includes(key)) {
-            companyName = ticker;
-            break;
-          }
-        }
+        // Company name/ticker extraction is now handled automatically by the backend
+        // using LLM-based entity extraction. No need for hardcoded mappings.
+        // The backend will extract tickers from the query using the LLM classifier.
         
         // Get today's date in YYYY-MM-DD format
         const today = new Date();
         const tradeDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
         // Prepare request body matching backend expectations
+        // Note: company_name is optional - backend will extract it from query using LLM
         const requestBody: {
           query: string;
           company_name?: string;
@@ -106,10 +87,8 @@ export function useAgentStreaming(
           })),
         };
         
-        // Add company_name if we extracted it
-        if (companyName) {
-          requestBody.company_name = companyName;
-        }
+        // company_name is now optional - backend will extract it automatically
+        // Only include if explicitly provided (for backward compatibility)
         
         // Add thread_id if provided (for saving agent response to database)
         if (threadId) {
@@ -160,11 +139,39 @@ export function useAgentStreaming(
                   const event: AgentStreamEvent = JSON.parse(jsonStr);
                   updateActivity(event);
                   
+                  // Handle error events - call onError callback and stop streaming
+                  if (event.event_type === 'error') {
+                    console.error('❌ Agent error event received:', event.message);
+                    const errorMessage = event.message || 'An error occurred during agent processing';
+                    if (onError) {
+                      onError(new Error(errorMessage));
+                    }
+                    // Stop streaming on error
+                    if (abortControllerRef.current) {
+                      abortControllerRef.current.abort();
+                      abortControllerRef.current = null;
+                    }
+                    // Don't return here - let the stream continue to receive the complete event
+                    // The complete event will be handled below
+                  }
+                  
                   // Check if streaming completed
                   if (event.event_type === 'complete' || event.event_type === 'analysis_complete' || event.event_type === 'orchestration_complete') {
-                    console.log('✅ Streaming complete, calling onComplete callback');
-                    if (onComplete) {
-                      onComplete();
+                    // Check if this is an error completion
+                    const isErrorCompletion = (event.data as any)?.error === true || (event.data as any)?.stopped === true;
+                    
+                    if (isErrorCompletion) {
+                      console.log('⚠️ Streaming stopped due to error');
+                      // onError was already called above if error event was received
+                      // But if we only got a complete event with error flag, call onError here
+                      if (event.message && onError) {
+                        onError(new Error(event.message));
+                      }
+                    } else {
+                      console.log('✅ Streaming complete, calling onComplete callback');
+                      if (onComplete) {
+                        onComplete();
+                      }
                     }
                   }
                 }

@@ -106,6 +106,7 @@ export function AnalysisBreakdown({ state, decision, company, date }: AnalysisBr
   const hasDecision = decision && 
                       decision.trim() !== '' && 
                       ['BUY', 'SELL', 'HOLD'].includes(decision.toUpperCase());
+  const [isDownloading, setIsDownloading] = useState(false);
   
   const decisionColors = {
     BUY: 'bg-green-500/20 text-green-600 border-green-500/30',
@@ -117,33 +118,86 @@ export function AnalysisBreakdown({ state, decision, company, date }: AnalysisBr
     ? (decisionColors[decision.toUpperCase() as keyof typeof decisionColors] || 'bg-surface text-text-primary border-border')
     : 'bg-surface text-text-primary border-border';
   
+  const downloadPDF = async () => {
+    setIsDownloading(true);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/agents/pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          company,
+          date,
+          decision,
+          state,
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Meridian_${company}_Analysis_${date}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      alert('Failed to download PDF. Please try again.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+  
   return (
     <div className="space-y-3 mt-4">
-      {/* Decision Badge - Only show if decision is valid (BUY/SELL/HOLD) */}
-      {hasDecision && (
-        <div className="flex items-center justify-between">
+      {/* Decision Badge & Download Button */}
+      <div className="flex items-center justify-between">
+        {hasDecision ? (
           <div className={cn('inline-flex items-center gap-2 px-4 py-2 rounded-lg border font-semibold', decisionColor)}>
             <span className="text-lg">
-              {decision.toUpperCase() === 'BUY' && '📈'}
-              {decision.toUpperCase() === 'SELL' && '📉'}
-              {decision.toUpperCase() === 'HOLD' && '⏸️'}
+              {decision && decision.toUpperCase() === 'BUY' && '📈'}
+              {decision && decision.toUpperCase() === 'SELL' && '📉'}
+              {decision && decision.toUpperCase() === 'HOLD' && '⏸️'}
             </span>
-            <span>Decision: {decision.toUpperCase()}</span>
+            <span>Decision: {decision && decision.toUpperCase()}</span>
           </div>
-          <div className="text-xs text-text-secondary">
-            {company} • {date}
-          </div>
+        ) : null}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={downloadPDF}
+            disabled={isDownloading}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg border border-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isDownloading ? (
+              <>
+                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Generating...</span>
+              </>
+            ) : (
+              <>
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Download PDF</span>
+              </>
+            )}
+          </button>
         </div>
-      )}
+      </div>
       
-      {/* Company and Date - Show even when no decision */}
-      {!hasDecision && (
-        <div className="flex items-center justify-end">
           <div className="text-xs text-text-secondary">
             {company} • {date}
           </div>
-        </div>
-      )}
       
       {/* Final Decision */}
       {state.final_trade_decision && (

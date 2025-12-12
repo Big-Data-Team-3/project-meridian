@@ -223,12 +223,19 @@ def clean_state_for_response(state: Dict[str, Any], execution_plan: Optional[Exe
         "information_report",
         "investment_plan",
         "trader_investment_plan",
-        "final_trade_decision"
+        "final_trade_decision",
+        "formatted_response",  # Query-aware formatted response from ResponseFormatter
+        "response_source",      # Source of response (formatted_agent_output or fallback_llm)
     ]
     
     for field in report_fields:
-        if field in state and isinstance(state[field], str) and state[field].strip():
-            cleaned[field] = state[field]
+        if field in state:
+            # For formatted_response and response_source, include even if empty (for debugging)
+            if field in ["formatted_response", "response_source"]:
+                if isinstance(state[field], str):
+                    cleaned[field] = state[field]
+            elif isinstance(state[field], str) and state[field].strip():
+                cleaned[field] = state[field]
     
     # Only include debate state if debate phase was used and has content
     if include_debate and "investment_debate_state" in state:

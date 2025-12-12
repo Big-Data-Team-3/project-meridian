@@ -451,18 +451,14 @@ class TradingAgentsGraph:
             elif has_news_keyword and not has_trading_keyword:
                 is_news_only = True
 
-        # Emit completion event if streaming enabled
-        if self.enable_streaming and self.event_emitter:
             # Determine if this query requires a trading decision
             # ONLY set decision when the actual static workflow (with debate/risk phases) is orchestrated
-            requires_decision_for_streaming = has_debate or has_risk
-            
-            # For news-only or simple analysis queries (no debate/risk phases), don't extract a decision
-            if is_news_only or not requires_decision_for_streaming:
-                streaming_decision = None
+        requires_decision = has_debate or has_risk
                 
                 # Apply response formatting for non-workflow queries (single-agent or multi-agent)
-                if query and not requires_decision_for_streaming:
+        # This runs for BOTH streaming and non-streaming endpoints
+        # Formatting applies to simple analysis queries (no debate/risk workflow) and news-only queries
+        if query and not requires_decision:
                     try:
                         formatter = ResponseFormatter()
                         
@@ -471,7 +467,7 @@ class TradingAgentsGraph:
                                           if agent_id in ["market_analyst", "fundamentals_analyst", "information_analyst"]]
                         is_multi_agent = len(analyst_agents) > 1
                         
-                        # Emit event before formatting
+                # Emit event before formatting (only if streaming enabled)
                         if self.enable_streaming and self.event_emitter:
                             format_start_event = AgentStreamEvent(
                                 event_type="formatting_start",
@@ -517,8 +513,8 @@ class TradingAgentsGraph:
                             "No agent outputs available" not in formatted_response
                         )
                         
+                # Emit fallback event (only if streaming enabled)
                         if used_fallback and self.enable_streaming and self.event_emitter:
-                            # Emit fallback event
                             fallback_event = AgentStreamEvent(
                                 event_type="fallback_llm_used",
                                 message="Using fallback LLM response (agent output not available)",
@@ -531,34 +527,26 @@ class TradingAgentsGraph:
                             )
                             self.event_emitter.emit(fallback_event)
                         
-                        # Use formatted response (which is now either formatted agent output OR fallback LLM response)
-                        streaming_response = formatted_response
-                        
-                        # Store formatted response in state
+                # Store formatted response in state (for both streaming and non-streaming)
                         final_state["formatted_response"] = formatted_response
                         final_state["response_source"] = "fallback_llm" if used_fallback else "formatted_agent_output"
                         
                         print(f"✅ Response ready (source: {final_state['response_source']}): '{query[:100]}...'")
                     except Exception as e:
                         print(f"⚠️  Response formatting failed: {str(e)}. Using original report.")
-                        # Fallback to original behavior
-                        if is_news_only:
-                            streaming_response = (
-                                final_state.get("information_report") or
-                                final_state.get("news_report") or
-                                final_state.get("sentiment_report") or
-                                "News summary not available"
-                            )
-                        else:
-                            # Simple analysis query - use the relevant analyst report
-                            streaming_response = (
-                                final_state.get("market_report") or
-                                final_state.get("fundamentals_report") or
-                                final_state.get("information_report") or
-                                "Analysis report not available"
-                            )
+                # Don't set formatted_response if formatting failed
+
+        # Emit completion event if streaming enabled
+        if self.enable_streaming and self.event_emitter:
+            # For news-only or simple analysis queries (no debate/risk phases), don't extract a decision
+            if is_news_only or not requires_decision:
+                streaming_decision = None
+                
+                # Use formatted response if available (from formatting above), otherwise fall back to original reports
+                if final_state.get("formatted_response"):
+                    streaming_response = final_state["formatted_response"]
                 else:
-                    # No query available or formatting skipped - use original behavior
+                    # Fallback to original behavior if formatting didn't run or failed
                     if is_news_only:
                         streaming_response = (
                             final_state.get("information_report") or
@@ -678,12 +666,18 @@ class TradingAgentsGraph:
             "investment_plan",
             "trader_investment_plan",
             "final_trade_decision",
-            "formatted_response"  # Add formatted response
+            "formatted_response",  # Query-aware formatted response from ResponseFormatter
+            "response_source"       # Source of response (formatted_agent_output or fallback_llm)
         ]
         
         for field in string_fields:
-            if field in state and isinstance(state[field], str) and state[field].strip():
-                serializable[field] = state[field]
+            if field in state:
+                # For formatted_response and response_source, include even if empty (for debugging)
+                if field in ["formatted_response", "response_source"]:
+                    if isinstance(state[field], str):
+                        serializable[field] = state[field]
+                elif isinstance(state[field], str) and state[field].strip():
+                    serializable[field] = state[field] if isinstance(state[field], str) else str(state[field])
         
         # Only include debate state if debate phase was actually used
         has_debate = (self.current_execution_plan and any(agent_id in ["bull_researcher", "bear_researcher", "research_manager"] 

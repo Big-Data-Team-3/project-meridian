@@ -14,12 +14,21 @@ from pydantic import BaseModel, Field
 import httpx
 from httpx import Timeout
 
+logger = logging.getLogger(__name__)
+
+# Import yfinance for ticker validation (optional - only used if available)
+try:
+    import yfinance as yf
+    YFINANCE_AVAILABLE = True
+except ImportError:
+    YFINANCE_AVAILABLE = False
+    logger.warning("yfinance not available - ticker validation will be skipped")
+
 from api.auth import require_auth
 from services.agent_orchestrator import get_agent_orchestrator
 from services.message_service import MessageService
 from models.query_intent import QueryIntent
-
-logger = logging.getLogger(__name__)
+from utils.pdf_generator import generate_analysis_pdf
 
 router = APIRouter(prefix="/api/streaming", tags=["streaming"])
 
@@ -27,6 +36,92 @@ router = APIRouter(prefix="/api/streaming", tags=["streaming"])
 def get_utc_timestamp() -> str:
     """Get current UTC timestamp in ISO format."""
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+def validate_company_ticker(company_name: str) -> tuple[bool, Optional[str], Optional[str]]:
+    """
+    Validate that a company/ticker exists and can be fetched from data sources.
+    
+    Args:
+        company_name: Company name or ticker symbol to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message, normalized_ticker)
+        - is_valid: True if company exists and can be fetched
+        - error_message: Error message if validation fails, None if valid
+        - normalized_ticker: The actual ticker symbol from yfinance (e.g., "AAPL"), or None if invalid
+    """
+    if not company_name or company_name.strip() == "" or company_name == "UNKNOWN":
+        return False, "No company or ticker symbol provided. Please specify a company name or stock ticker symbol (e.g., AAPL, TSLA, MSFT).", None
+    
+    company_name = company_name.strip().upper()
+    
+    # If yfinance is available, validate the ticker
+    if YFINANCE_AVAILABLE:
+        try:
+            # Note: yfinance uses requests library which has default timeouts
+            # If validation takes too long, it will raise an exception which we catch below
+            ticker = yf.Ticker(company_name)
+            info = ticker.info
+            
+            # Check if ticker is valid (has symbol)
+            if not info or not info.get('symbol'):
+                return False, (
+                    f"Company or ticker '{company_name}' not found in our data sources. "
+                    "Please provide a valid stock ticker symbol (e.g., AAPL for Apple, TSLA for Tesla, MSFT for Microsoft)."
+                ), None
+            
+            # More lenient check: if we have a symbol, accept it even without name fields
+            # This handles edge cases like new IPOs or international tickers
+            # Only reject if we have absolutely no useful data
+            symbol = info.get('symbol')
+            has_name = info.get('shortName') or info.get('longName')
+            
+            if symbol:
+                # If we have a symbol, accept it (even without name)
+                # This is more lenient and handles edge cases better
+                # Return the normalized ticker symbol (uppercase) for consistency
+                normalized_ticker = symbol.upper() if symbol else None
+                company_display = has_name or symbol
+                logger.info(f"✓ Validated company: {company_display} ({normalized_ticker})")
+                return True, None, normalized_ticker
+            else:
+                # No symbol means invalid ticker
+                return False, (
+                    f"Company or ticker '{company_name}' not found in our data sources. "
+                    "Please provide a valid stock ticker symbol (e.g., AAPL for Apple, TSLA for Tesla, MSFT for Microsoft)."
+                ), None
+            
+        except Exception as e:
+            logger.warning(f"Error validating ticker {company_name}: {e}")
+            # Check if it's a timeout or network error
+            error_str = str(e).lower()
+            if 'timeout' in error_str or 'timed out' in error_str:
+                return False, (
+                    f"Validation timeout for '{company_name}'. "
+                    "The data source is taking too long to respond. Please try again."
+                ), None
+            elif 'connection' in error_str or 'network' in error_str:
+                return False, (
+                    f"Network error while validating '{company_name}'. "
+                    "Please check your connection and try again."
+                ), None
+            else:
+                return False, (
+                    f"Unable to validate company '{company_name}'. "
+                    "Please check if the ticker symbol is correct and try again."
+                ), None
+    else:
+        # If yfinance not available, do basic format check
+        # Allow it to proceed but log a warning
+        if len(company_name) > 5 or not company_name.isalpha():
+            return False, (
+                f"Invalid ticker format: '{company_name}'. "
+                "Ticker symbols are typically 1-5 uppercase letters (e.g., AAPL, TSLA)."
+            ), None
+        
+        logger.warning("yfinance not available - skipping ticker validation")
+        # Return the uppercased input as normalized ticker (best we can do without yfinance)
+        return True, None, company_name
 
 
 class AgentAnalysisRequest(BaseModel):
@@ -251,11 +346,107 @@ async def stream_agent_analysis(
         if not query_text:
             query_text = f"Analyze {request.company_name}"
         
-        # Classify query and get workflow
+        # Classify query and get workflow (also get full classification for entity extraction)
         intent, workflow = orchestrator.classify_and_get_workflow(
             query_text,
             request.conversation_context
         )
+        
+        # Extract company ticker from LLM entities if not provided
+        extracted_ticker = None
+        if not request.company_name:
+            try:
+                classification_result = orchestrator.classifier.classify_with_entities(
+                    query_text,
+                    request.conversation_context
+                )
+                
+                if classification_result and classification_result.entities:
+                    # Look for ticker-like entities (1-5 uppercase letters)
+                    for entity in classification_result.entities:
+                        entity_upper = entity.upper().strip()
+                        # Check if it looks like a ticker (1-5 uppercase letters, no spaces)
+                        if 1 <= len(entity_upper) <= 5 and entity_upper.isalpha() and ' ' not in entity_upper:
+                            # Validate with yfinance if available (quick check)
+                            if YFINANCE_AVAILABLE:
+                                try:
+                                    ticker = yf.Ticker(entity_upper)
+                                    info = ticker.info
+                                    # Check if ticker is valid (has symbol in info)
+                                    if info and info.get('symbol'):
+                                        extracted_ticker = entity_upper
+                                        logger.info(f"✓ Extracted and validated ticker '{extracted_ticker}' from query entities")
+                                        break
+                                except Exception as e:
+                                    logger.debug(f"Ticker validation failed for {entity_upper}: {e}")
+                                    continue
+                            else:
+                                # If yfinance not available, use entity as-is if it looks like a ticker
+                                extracted_ticker = entity_upper
+                                logger.info(f"✓ Extracted ticker '{extracted_ticker}' from query entities (validation skipped)")
+                                break
+            except Exception as e:
+                logger.warning(f"Failed to extract ticker from entities: {e}")
+        
+        # Use extracted ticker, provided company_name, or fallback
+        final_company_name = extracted_ticker or request.company_name or "UNKNOWN"
+        
+        # Validate company/ticker before proceeding with agent workflows
+        # Only validate if workflow requires agents (not for direct_response)
+        if workflow.workflow_type != "direct_response":
+            # Validate company exists and can be fetched
+            is_valid, error_message, normalized_ticker = validate_company_ticker(final_company_name)
+            
+            if not is_valid:
+                logger.warning(f"Company validation failed: {error_message} (company: {final_company_name})")
+                
+                # Return error early - don't start agent workflow
+                async def error_generator():
+                    error_event = AgentTraceEvent(
+                        event_type="error",
+                        message=error_message or "Invalid company or ticker symbol",
+                        timestamp=datetime.datetime.now().isoformat(),
+                        data={
+                            "error_type": "invalid_company",
+                            "company_name": final_company_name,
+                            "suggestion": (
+                                f"'{final_company_name}' was not found in our data sources. "
+                                "Please try:\n"
+                                "- Using the stock ticker symbol (e.g., AAPL for Apple, TSLA for Tesla, MSFT for Microsoft)\n"
+                                "- Checking the spelling of the company name\n"
+                                "- Using the full company name"
+                            )
+                        }
+                    )
+                    yield await format_sse_event(error_event)
+                    
+                    # Send complete event so frontend knows to stop
+                    complete_event = AgentTraceEvent(
+                        event_type="complete",
+                        message="Workflow stopped - invalid company",
+                        progress=0,
+                        timestamp=datetime.datetime.now().isoformat(),
+                        data={"error": True, "stopped": True}
+                    )
+                    yield await format_sse_event(complete_event)
+                
+                return StreamingResponse(
+                    error_generator(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Headers": "Cache-Control",
+                    }
+                )
+            
+            # Use normalized ticker if available (from yfinance validation)
+            # This ensures agents receive the correct ticker symbol (e.g., "AAPL") 
+            # instead of company name (e.g., "APPLE")
+            if normalized_ticker:
+                final_company_name = normalized_ticker
+                logger.info(f"✓ Using normalized ticker: {final_company_name} (original: {request.company_name or extracted_ticker})")
         
         # Get agent endpoint and timeout
         agent_endpoint, timeout_seconds = orchestrator.get_agent_endpoint(workflow)
@@ -324,7 +515,7 @@ async def stream_agent_analysis(
                 
                 # Prepare agent request payload
                 agent_payload = orchestrator.prepare_agent_request(
-                    company_name=request.company_name or "UNKNOWN",
+                    company_name=final_company_name,
                     trade_date=request.trade_date,
                     workflow=workflow,
                     conversation_context=request.conversation_context,
@@ -418,10 +609,40 @@ async def stream_agent_analysis(
                                     # Handle any other SSE format lines
                                     yield line + "\n"
                     
+                    # Generate PDF from the agent analysis (even without thread_id)
+                            pdf_filename = None
+                    if full_agent_response and final_response_text:
+                                try:
+                                    company = full_agent_response.get("company") or final_company_name or "UNKNOWN"
+                                    date = full_agent_response.get("date") or request.trade_date
+                                    decision = full_agent_response.get("decision", "UNKNOWN")
+                                    # Use the inner state if present; fallback to full response to avoid empty PDFs
+                                    state = full_agent_response.get("state") or full_agent_response
+                                    
+                                    pdf_buffer = generate_analysis_pdf(
+                                        company=company,
+                                        date=date,
+                                        decision=decision,
+                                        state=state
+                                    )
+                                    
+                                    pdf_dir = "/app/data/pdfs"
+                                    os.makedirs(pdf_dir, exist_ok=True)
+                                    
+                                    pdf_filename = f"Meridian_{company}_{date}.pdf"
+                                    pdf_path = os.path.join(pdf_dir, pdf_filename)
+                                    
+                                    with open(pdf_path, 'wb') as f:
+                                        f.write(pdf_buffer.read())
+                                    
+                                    logger.info(f"Generated PDF: {pdf_path}")
+                                except Exception as pdf_error:
+                                    logger.error(f"Failed to generate PDF: {pdf_error}", exc_info=True)
+                            # Don't fail the request if PDF generation fails
+                            
                     # Save agent response to database if thread_id is provided
                     if request.thread_id and final_response_text and message_service:
                         try:
-                            # Prepare metadata with agent trace AND full analysis
                             metadata = {
                                 "agent_trace": {
                                     "events": agent_trace_events,
@@ -437,7 +658,9 @@ async def stream_agent_analysis(
                                 "workflow_type": workflow.workflow_type,
                                 "agents_used": workflow.agents,
                                 # Include full agent analysis for frontend breakdown
-                                "agent_analysis": full_agent_response if full_agent_response else None
+                                "agent_analysis": full_agent_response if full_agent_response else None,
+                                # Include PDF filename for download (if generated)
+                                "pdf_filename": pdf_filename
                             }
                             
                             assistant_msg = await message_service.save_assistant_message(

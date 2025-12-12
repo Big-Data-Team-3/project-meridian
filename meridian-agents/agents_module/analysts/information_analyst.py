@@ -144,12 +144,13 @@ def create_information_analyst(model: str = "gpt-4o-mini"):
             updated_messages.append(AIMessage(content=error_msg))
             
             return {
-                "messages": updated_messages,
-                "information_report": error_msg,
-                # For backward compatibility
-                "news_report": error_msg,
-                "sentiment_report": error_msg,
-            }
+    "messages": updated_messages,
+    "information_report": error_msg,
+    # For backward compatibility
+    "news_report": error_msg,
+    "sentiment_report": error_msg,
+    "sender": "Information Analyst",
+}
 
     return information_analyst_node
 

@@ -39,6 +39,9 @@ export default function ChatPage(): ReactElement | null {
       onError: (error) => {
         console.error('Agent streaming error:', error);
         clearOptimisticMessages();
+        // Display error message to user
+        const errorMessage = error.message || 'An error occurred during agent processing. Please try again.';
+        alert(`Error: ${errorMessage}`);
       },
       onComplete: () => {
         console.log('🔄 Streaming complete, refetching messages and conversations');
