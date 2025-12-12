@@ -1,0 +1,115 @@
+agents:
+  # Analysts - Data collection agents
+  - name: market_analyst
+    entrypoint: "agents_module.analysts.market_analyst:create_market_analyst"
+    requires_memory: false
+    tests:
+      - id: "market_analyst_basic_1"
+        prompt: "Analyze the market data for AAPL as of 2024-12-19. Provide technical analysis."
+        expected:
+          must_contain_keywords: ["AAPL", "analysis"]
+          contains: ["market", "indicator", "technical"]
+
+  - name: fundamentals_analyst
+    entrypoint: "agents_module.analysts.fundamentals_analyst:create_fundamentals_analyst"
+    requires_memory: false
+    tests:
+      - id: "fundamentals_analyst_basic_1"
+        prompt: "Analyze the fundamental information for AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL", "fundamental"]
+          contains: ["company", "analysis", "financial"]
+
+  - name: information_analyst
+    entrypoint: "agents_module.analysts.information_analyst:create_information_analyst"
+    requires_memory: false
+    tests:
+      - id: "information_analyst_basic_1"
+        prompt: "Analyze news and information for AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL", "news"]
+          contains: ["analysis", "information"]
+
+  # Researchers - Debate agents
+  - name: bull_researcher
+    entrypoint: "agents_module.researchers.bull_researcher:create_bull_researcher"
+    requires_memory: true
+    tests:
+      - id: "bull_researcher_basic_1"
+        prompt: "Make a bull case for investing in AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL", "bull", "growth"]
+          contains: ["investment", "positive", "opportunity"]
+
+  - name: bear_researcher
+    entrypoint: "agents_module.researchers.bear_researcher:create_bear_researcher"
+    requires_memory: true
+    tests:
+      - id: "bear_researcher_basic_1"
+        prompt: "Make a bear case against investing in AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL", "bear", "risk"]
+          contains: ["concern", "challenge", "negative"]
+
+  # Managers - Synthesis agents
+  - name: research_manager
+    entrypoint: "agents_module.managers.research_manager:create_research_manager"
+    requires_memory: true
+    tests:
+      - id: "research_manager_basic_1"
+        prompt: "Synthesize the debate and make an investment decision for AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL", "decision"]
+          contains: ["investment", "plan", "recommend", "action"]
+
+  - name: risk_manager
+    entrypoint: "agents_module.managers.risk_manager:create_risk_manager"
+    requires_memory: true
+    tests:
+      - id: "risk_manager_basic_1"
+        prompt: "Evaluate risk and make a final decision for AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL", "risk"]
+          contains: ["decision", "evaluation", "assessment"]
+
+  # Trader
+  - name: trader
+    entrypoint: "agents_module.trader.trader:create_trader"
+    requires_memory: true
+    tests:
+      - id: "trader_basic_1"
+        prompt: "Make a trading decision for AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL"]
+          contains: ["decision", "BUY", "SELL", "HOLD", "transaction", "proposal"]
+
+  # Risk Debators
+  - name: risky_debator
+    entrypoint: "agents_module.risk_mgmt.aggresive_debator:create_risky_debator"
+    requires_memory: false
+    tests:
+      - id: "risky_debator_basic_1"
+        prompt: "Provide a risky perspective on trading AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL", "risk"]
+          contains: ["opportunity", "reward", "aggressive"]
+
+  - name: safe_debator
+    entrypoint: "agents_module.risk_mgmt.conservative_debator:create_safe_debator"
+    requires_memory: false
+    tests:
+      - id: "safe_debator_basic_1"
+        prompt: "Provide a conservative perspective on trading AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL", "risk"]
+          contains: ["conservative", "safe", "caution"]
+
+  - name: neutral_debator
+    entrypoint: "agents_module.risk_mgmt.neutral_debator:create_neutral_debator"
+    requires_memory: false
+    tests:
+      - id: "neutral_debator_basic_1"
+        prompt: "Provide a balanced perspective on trading AAPL as of 2024-12-19."
+        expected:
+          must_contain_keywords: ["AAPL", "risk"]
+          contains: ["balanced", "neutral", "moderate"]

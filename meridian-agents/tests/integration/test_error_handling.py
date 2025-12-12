@@ -43,7 +43,9 @@ class TestErrorHandlingIntegration:
     
     def test_health_endpoint_error_handling(self, client):
         """Test that health endpoint handles errors gracefully."""
-        with patch("server.get_graph", side_effect=Exception("Graph error")):
+        # Health endpoint checks _graph_init_error, not get_graph()
+        # So we need to patch the global variable
+        with patch("server._graph_init_error", Exception("Graph error")):
             response = client.get("/health")
             # Health should always return 200
             assert response.status_code == 200
