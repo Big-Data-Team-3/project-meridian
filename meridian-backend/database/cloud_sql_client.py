@@ -26,11 +26,29 @@ class CloudSQLClient:
         """
         Initialize the Cloud SQL client.
         Loads environment variables and prepares for connection.
+        
+        Raises:
+            ValueError: If required environment variables are not set
         """
-        self.instance_connection_name = os.environ.get("INSTANCE_CONNECTION_NAME")
-        self.db_user = os.environ.get("DB_USER")
-        self.db_pass = os.environ.get("DB_PASS")
-        self.db_name = os.environ.get("DB_NAME")
+        # Validate required environment variables at initialization time
+        required_vars = {
+            "INSTANCE_CONNECTION_NAME": os.environ.get("INSTANCE_CONNECTION_NAME"),
+            "DB_USER": os.environ.get("DB_USER"),
+            "DB_PASS": os.environ.get("DB_PASS"),
+            "DB_NAME": os.environ.get("DB_NAME"),
+        }
+        
+        missing_vars = [var for var, value in required_vars.items() if not value]
+        if missing_vars:
+            raise ValueError(
+                f"Missing required environment variables: {', '.join(missing_vars)}. "
+                f"Please set them in your environment or .env file."
+            )
+        
+        self.instance_connection_name = required_vars["INSTANCE_CONNECTION_NAME"]
+        self.db_user = required_vars["DB_USER"]
+        self.db_pass = required_vars["DB_PASS"]
+        self.db_name = required_vars["DB_NAME"]
         self.pool: Optional[Engine] = None
         self.connector: Optional[Connector] = None
 
@@ -51,12 +69,31 @@ class CloudSQLClient:
         # Cloud Secret Manager (https://cloud.google.com/secret-manager) to help
         # keep secrets safe.
 
-        instance_connection_name = self.instance_connection_name or os.environ[
+        # Use instance variables (already validated in __init__)
+        # Fallback to environment variables only if instance variables are None
+        # (shouldn't happen after validation, but kept for safety)
+        instance_connection_name = self.instance_connection_name or os.environ.get(
             "INSTANCE_CONNECTION_NAME"
-        ]  # e.g. 'project:region:instance'
-        db_user = self.db_user or os.environ["DB_USER"]  # e.g. 'my-db-user'
-        db_pass = self.db_pass or os.environ["DB_PASS"]  # e.g. 'my-db-password'
-        db_name = self.db_name or os.environ["DB_NAME"]  # e.g. 'my-database'
+        )  # e.g. 'project:region:instance'
+        db_user = self.db_user or os.environ.get("DB_USER")  # e.g. 'my-db-user'
+        db_pass = self.db_pass or os.environ.get("DB_PASS")  # e.g. 'my-db-password'
+        db_name = self.db_name or os.environ.get("DB_NAME")  # e.g. 'my-database'
+        
+        # Final validation before connection attempt
+        if not all([instance_connection_name, db_user, db_pass, db_name]):
+            missing = []
+            if not instance_connection_name:
+                missing.append("INSTANCE_CONNECTION_NAME")
+            if not db_user:
+                missing.append("DB_USER")
+            if not db_pass:
+                missing.append("DB_PASS")
+            if not db_name:
+                missing.append("DB_NAME")
+            raise ValueError(
+                f"Missing required database configuration: {', '.join(missing)}. "
+                f"Cannot establish database connection."
+            )
 
         ip_type = IPTypes.PRIVATE if os.environ.get("PRIVATE_IP") else IPTypes.PUBLIC
 

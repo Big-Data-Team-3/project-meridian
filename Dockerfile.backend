@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy backend source code
 COPY meridian-backend/ ./meridian-backend/
 
+# Create config directory for mounted credentials
+RUN mkdir -p /app/config
+
 # Set Python path to include meridian-backend directory
 ENV PYTHONPATH=/app/meridian-backend:/app
 
