@@ -13,7 +13,6 @@ from sqlalchemy import text
 from sqlalchemy.engine.base import Engine
 
 from dotenv import load_dotenv
-load_dotenv()
 
 
 class CloudSQLClient:
@@ -30,13 +29,49 @@ class CloudSQLClient:
         Raises:
             ValueError: If required environment variables are not set
         """
+        # Determine if we're in Cloud Run
+        is_cloud_run = bool(os.environ.get("K_SERVICE"))
+        
+        # Only load .env file in local development (not in Cloud Run)
+        # In Cloud Run, environment variables are set directly by the deployment script
+        if not is_cloud_run and os.environ.get("ENVIRONMENT") != "production":
+            load_dotenv()
+        
+        # Determine database name based on environment
+        # Priority: 
+        #   - Cloud Run: Use DB_NAME set by deployment script (or PROD_DB_NAME as fallback)
+        #   - Local Dev: Prioritize DEV_DB_NAME over DB_NAME from .env (to avoid conflicts)
+        if is_cloud_run:
+            # In Cloud Run, use DB_NAME set by deployment script (or PROD_DB_NAME as fallback)
+            db_name = os.environ.get("DB_NAME") or os.environ.get("PROD_DB_NAME", "meridian_prod")
+        else:
+            # In local dev, prioritize DEV_DB_NAME over DB_NAME from .env
+            # This prevents .env DB_NAME='meridian_prod' from overriding DEV_DB_NAME='postgres'
+            db_name = os.environ.get("DEV_DB_NAME") or os.environ.get("DB_NAME", "meridian_dev")
+            # Set it in environment so subsequent code uses the correct value
+            os.environ["DB_NAME"] = db_name
+        
         # Validate required environment variables at initialization time
+        # Note: In Cloud Run, these are set directly as environment variables
+        # In local dev, they may come from .env file (loaded above if not in production)
         required_vars = {
             "INSTANCE_CONNECTION_NAME": os.environ.get("INSTANCE_CONNECTION_NAME"),
             "DB_USER": os.environ.get("DB_USER"),
-            "DB_PASS": os.environ.get("DB_PASS"),
-            "DB_NAME": os.environ.get("DB_NAME"),
+            "DB_PASS": os.environ.get("DB_PASS"),  # Note: Cloud uses DB_PASS, not DB_PASSWORD
+            "DB_NAME": db_name,  # Use the determined database name
         }
+        
+        # Provide helpful error message if using wrong variable names
+        if not required_vars["INSTANCE_CONNECTION_NAME"] and os.environ.get("DB_HOST"):
+            raise ValueError(
+                "Found DB_HOST but need INSTANCE_CONNECTION_NAME. "
+                "Please use INSTANCE_CONNECTION_NAME (format: project:region:instance)"
+            )
+        if not required_vars["DB_PASS"] and os.environ.get("DB_PASSWORD"):
+            raise ValueError(
+                "Found DB_PASSWORD but need DB_PASS. "
+                "Please use DB_PASS for consistency with Cloud Run deployment"
+            )
         
         missing_vars = [var for var, value in required_vars.items() if not value]
         if missing_vars:
