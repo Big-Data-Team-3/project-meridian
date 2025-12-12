@@ -111,7 +111,7 @@ async def generate_pdf_from_results(request: AgentAnalyzeResponse):
         )
         
         # Return PDF as download
-        filename = f"meridian_analysis_{request.company}_{request.date}.pdf"
+        filename = f"Meridian_{request.company}_{request.date}.pdf"
         return Response(
             content=pdf_buffer.read(),
             media_type="application/pdf",
@@ -131,6 +131,46 @@ async def generate_pdf_from_results(request: AgentAnalyzeResponse):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate PDF: {str(e)}"
+        )
+
+
+@router.get("/pdf/{filename}")
+async def download_pdf(filename: str):
+    """
+    Download a previously generated PDF report.
+    
+    Args:
+        filename: Name of the PDF file to download (e.g., Meridian_MSFT_2025-01-15.pdf)
+    
+    Returns:
+        PDF file as a downloadable response
+    """
+    try:
+        import os
+        pdf_dir = "/app/data/pdfs"
+        pdf_path = os.path.join(pdf_dir, filename)
+        
+        if not os.path.exists(pdf_path):
+            raise HTTPException(status_code=404, detail="PDF not found")
+        
+        # Read PDF file
+        with open(pdf_path, 'rb') as f:
+            pdf_content = f.read()
+        
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"PDF download error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to download PDF: {str(e)}"
         )
 
 

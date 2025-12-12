@@ -17,6 +17,7 @@ from api.auth import require_auth
 from services.agent_orchestrator import get_agent_orchestrator
 from services.message_service import MessageService
 from models.query_intent import QueryIntent
+from utils.pdf_generator import generate_analysis_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -404,6 +405,38 @@ async def stream_agent_analysis(
                     # Save agent response to database if thread_id is provided
                     if request.thread_id and final_response_text and message_service:
                         try:
+                            # Generate PDF from the agent analysis
+                            pdf_filename = None
+                            if full_agent_response:
+                                try:
+                                    company = full_agent_response.get("company") or request.company_name or "UNKNOWN"
+                                    date = full_agent_response.get("date") or request.trade_date
+                                    decision = full_agent_response.get("decision", "UNKNOWN")
+                                    state = full_agent_response
+                                    
+                                    # Generate PDF
+                                    pdf_buffer = generate_analysis_pdf(
+                                        company=company,
+                                        date=date,
+                                        decision=decision,
+                                        state=state
+                                    )
+                                    
+                                    # Save PDF to disk
+                                    pdf_dir = "/app/data/pdfs"
+                                    os.makedirs(pdf_dir, exist_ok=True)
+                                    
+                                    pdf_filename = f"Meridian_{company}_{date}.pdf"
+                                    pdf_path = os.path.join(pdf_dir, pdf_filename)
+                                    
+                                    with open(pdf_path, 'wb') as f:
+                                        f.write(pdf_buffer.read())
+                                    
+                                    logger.info(f"Generated PDF: {pdf_path}")
+                                except Exception as pdf_error:
+                                    logger.error(f"Failed to generate PDF: {pdf_error}", exc_info=True)
+                                    # Don't fail the entire request if PDF generation fails
+                            
                             # Prepare metadata with agent trace AND full analysis
                             metadata = {
                                 "agent_trace": {
@@ -420,7 +453,9 @@ async def stream_agent_analysis(
                                 "workflow_type": workflow.workflow_type,
                                 "agents_used": workflow.agents,
                                 # Include full agent analysis for frontend breakdown
-                                "agent_analysis": full_agent_response if full_agent_response else None
+                                "agent_analysis": full_agent_response if full_agent_response else None,
+                                # Include PDF filename for download
+                                "pdf_filename": pdf_filename
                             }
                             
                             assistant_msg = await message_service.save_assistant_message(

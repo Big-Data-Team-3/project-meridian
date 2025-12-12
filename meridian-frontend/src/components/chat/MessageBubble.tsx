@@ -8,7 +8,6 @@ import type { Message } from '@/types';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { useAgent } from '@/contexts/AgentContext';
-import { AnalysisBreakdown } from './AnalysisBreakdown';
 // import 'highlight.js/styles/github-dark.css';
 
 interface MessageBubbleProps {
@@ -21,7 +20,7 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
   
   const handleViewTrace = () => {
     if (message.agentTrace) {
-      setTraceFromMessage(message.agentTrace);
+      setTraceFromMessage(message.agentTrace, message.agentAnalysis);
       openTrace();
     }
   };
@@ -46,38 +45,25 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
           {isUser ? (
             <p className="text-white m-0 whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <>
-              {/* Main response content */}
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code: ({ node, className, children, ...props }) => {
-                    const match = /language-(\w+)/.exec(className || '');
-                    return match ? (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    ) : (
-                      <code className="bg-surface-hover px-1 py-0.5 rounded text-sm" {...props}>
-                        {children}
-                      </code>
-                    );
-                  },
-                }}
-              >
-                {message.content}
-              </ReactMarkdown>
-              
-              {/* Agent Analysis Breakdown */}
-              {message.agentAnalysis && (
-                <AnalysisBreakdown
-                  state={message.agentAnalysis.state}
-                  decision={message.agentAnalysis.decision}
-                  company={message.agentAnalysis.company}
-                  date={message.agentAnalysis.date}
-                />
-              )}
-            </>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code: ({ node, className, children, ...props }) => {
+                  const match = /language-(\w+)/.exec(className || '');
+                  return match ? (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  ) : (
+                    <code className="bg-surface-hover px-1 py-0.5 rounded text-sm" {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
           )}
         </div>
         <div

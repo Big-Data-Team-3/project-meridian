@@ -120,6 +120,7 @@ Past reflections on mistakes:
             return {
                 "risk_debate_state": new_risk_debate_state,
                 "final_trade_decision": error_msg,
+                "sender": "Risk Manager",
             }
 
     return risk_manager_node

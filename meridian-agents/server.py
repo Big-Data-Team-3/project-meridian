@@ -611,18 +611,16 @@ async def analyze_stream(request_data: AnalyzeRequest, request: Request):
                         decision  # Fallback to decision if nothing else available
                     )
                     
-                    # Extract key reports for summary
-                    summary_data = {
+                    # Prepare serializable state using graph's method
+                    serializable_state = graph._prepare_serializable_state(final_state)
+                    
+                    # Complete data with FULL state breakdown
+                    complete_data = {
                         "decision": decision,
                         "company": request_data.company_name,
                         "date": request_data.trade_date,
-                        "response": str(full_response),  # Full analysis response
-                        "reports": {
-                            "market": final_state.get("market_report", ""),
-                            "fundamentals": final_state.get("fundamentals_report", ""),
-                            "sentiment": final_state.get("sentiment_report", ""),
-                            "news": final_state.get("news_report", "")
-                        }
+                        "state": serializable_state,  # ← FULL STATE for frontend breakdown
+                        "response": str(full_response),  # Full analysis response text
                     }
                     
                     # Only include serialized state if needed (it's large and may contain non-serializable objects)
@@ -631,7 +629,7 @@ async def analyze_stream(request_data: AnalyzeRequest, request: Request):
                         event_type="complete",
                         message=f"Analysis complete for {request_data.company_name}",
                         progress=100,
-                        data=summary_data
+                        data=complete_data
                     )
                     yield format_sse_event(complete_event)
                     

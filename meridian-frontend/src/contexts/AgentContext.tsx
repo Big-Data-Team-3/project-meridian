@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import type { AgentActivity, AgentStreamEvent, AgentTrace } from '@/types/agent';
+import type { AgentAnalysis } from '@/types/chat';
 
 interface AgentContextValue {
   // Current agent activity
@@ -12,13 +13,16 @@ interface AgentContextValue {
   trace: AgentTrace | null;
   isTraceOpen: boolean;
   
+  // Agent analysis data for PDF download
+  agentAnalysis: AgentAnalysis | null;
+  
   // Actions
   updateActivity: (event: AgentStreamEvent) => void;
   clearActivity: () => void;
   toggleTrace: () => void;
   openTrace: () => void;
   closeTrace: () => void;
-  setTraceFromMessage: (trace: AgentTrace) => void;  // Restore trace from persisted message
+  setTraceFromMessage: (trace: AgentTrace, analysis?: AgentAnalysis) => void;  // Restore trace from persisted message
 }
 
 const AgentContext = createContext<AgentContextValue | undefined>(undefined);
@@ -27,6 +31,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const [currentActivity, setCurrentActivity] = useState<AgentActivity | null>(null);
   const [trace, setTrace] = useState<AgentTrace | null>(null);
   const [isTraceOpen, setIsTraceOpen] = useState(false);
+  const [agentAnalysis, setAgentAnalysis] = useState<AgentAnalysis | null>(null);
 
   const updateActivity = useCallback((event: AgentStreamEvent) => {
     // Update current activity
@@ -62,6 +67,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         startTime,
         lastUpdate: startTime,
       });
+      // Automatically open trace sidebar when analysis starts
+      setIsTraceOpen(true);
     } else if (event.event_type === 'tool_usage' && event.agent_name) {
       // Update tool usage
       setCurrentActivity((prev) => {
@@ -93,6 +100,27 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           lastUpdate: new Date(),
         };
       });
+      
+      // Extract and store agent analysis data for PDF download
+      if (event.data) {
+        const data = event.data as any;
+        if (data.company && data.date && data.decision && data.state) {
+          setAgentAnalysis({
+            company: data.company,
+            date: data.date,
+            decision: data.decision,
+            state: data.state || data,
+          });
+        } else if (data) {
+          // Try to extract from the data object itself
+          setAgentAnalysis({
+            company: data.company || 'UNKNOWN',
+            date: data.date || new Date().toISOString().split('T')[0],
+            decision: data.decision || 'UNKNOWN',
+            state: data,
+          });
+        }
+      }
       
       // Update trace
       setTrace((prev) => {
@@ -164,8 +192,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     setIsTraceOpen(false);
   }, []);
 
-  const setTraceFromMessage = useCallback((trace: AgentTrace) => {
+  const setTraceFromMessage = useCallback((trace: AgentTrace, analysis?: AgentAnalysis) => {
     setTrace(trace);
+    setAgentAnalysis(analysis || null);
     setIsTraceOpen(true);
   }, []);
 
@@ -174,6 +203,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     isAgentActive: currentActivity?.status === 'active',
     trace,
     isTraceOpen,
+    agentAnalysis,
     updateActivity,
     clearActivity,
     toggleTrace,
