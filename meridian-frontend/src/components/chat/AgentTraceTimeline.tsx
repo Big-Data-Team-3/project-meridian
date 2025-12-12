@@ -58,21 +58,54 @@ export function AgentTraceTimeline({ trace }: AgentTraceTimelineProps): ReactEle
 
   const formatTimestamp = (timestamp: string) => {
     try {
+      // Validate timestamp exists and is not empty
+      if (!timestamp || typeof timestamp !== 'string') {
+        return 'just now';
+      }
+
       const date = new Date(timestamp);
+      
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return 'just now';
+      }
+
       const now = new Date();
       const diffMs = now.getTime() - date.getTime();
       const diffSec = Math.floor(diffMs / 1000);
       
+      // Handle negative differences (future dates) or very small differences
+      if (diffSec < 0 || Math.abs(diffSec) < 1) {
+        return 'just now';
+      }
+      
+      // Handle small differences (less than a minute)
       if (diffSec < 60) {
         return `${diffSec}s ago`;
       }
+      
+      // Handle minutes
       const diffMin = Math.floor(diffSec / 60);
       if (diffMin < 60) {
         return `${diffMin}m ago`;
       }
-      return date.toLocaleTimeString();
-    } catch {
-      return '';
+      
+      // Handle hours
+      const diffHour = Math.floor(diffMin / 60);
+      if (diffHour < 24) {
+        return `${diffHour}h ago`;
+      }
+      
+      // For older dates, show formatted time
+      return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (error) {
+      // Fallback for any parsing errors
+      console.warn('Timestamp formatting error:', error, 'timestamp:', timestamp);
+      return 'just now';
     }
   };
 

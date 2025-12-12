@@ -39,7 +39,7 @@ export interface AnalysisState {
 export interface AgentAnalysis {
   company: string;
   date: string;
-  decision: string;
+  decision: string | null | undefined;
   state: AnalysisState;
 }
 

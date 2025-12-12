@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import httpx
+from httpx import Timeout
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,10 @@ from utils.pdf_generator import generate_analysis_pdf
 
 router = APIRouter(prefix="/api/streaming", tags=["streaming"])
 
+
+def get_utc_timestamp() -> str:
+    """Get current UTC timestamp in ISO format."""
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 def validate_company_ticker(company_name: str) -> tuple[bool, Optional[str], Optional[str]]:
     """
@@ -174,7 +179,7 @@ async def mock_agent_analysis_stream(company_name: str, trade_date: str) -> Asyn
     start_event = AgentTraceEvent(
         event_type="start",
         message=f"Starting analysis for {company_name} on {trade_date}",
-        timestamp=datetime.datetime.now().isoformat()
+        timestamp=get_utc_timestamp()
     )
     yield await format_sse_event(start_event)
 
@@ -188,7 +193,7 @@ async def mock_agent_analysis_stream(company_name: str, trade_date: str) -> Asyn
             agent_name=agent["name"],
             message=f"{agent['name']} is now analyzing {company_name}",
             progress=total_progress,
-            timestamp=datetime.datetime.now().isoformat()
+            timestamp=get_utc_timestamp()
         )
         yield await format_sse_event(agent_start)
 
@@ -207,7 +212,7 @@ async def mock_agent_analysis_stream(company_name: str, trade_date: str) -> Asyn
                 agent_name=agent["name"],
                 message=f"{agent['name']}: {step}",
                 progress=min(total_progress, 95),  # Cap at 95% until completion
-                timestamp=datetime.datetime.now().isoformat()
+                timestamp=get_utc_timestamp()
             )
             yield await format_sse_event(progress_event)
 
@@ -225,7 +230,7 @@ async def mock_agent_analysis_stream(company_name: str, trade_date: str) -> Asyn
             "confidence": random.uniform(0.6, 0.95),
             "agents_used": [agent["name"] for agent in agents]
         },
-        timestamp=datetime.datetime.now().isoformat()
+        timestamp=get_utc_timestamp()
     )
     yield await format_sse_event(complete_event)
 
@@ -245,7 +250,7 @@ async def real_agent_analysis_stream(company_name: str, trade_date: str, convers
         start_event = AgentTraceEvent(
             event_type="start",
             message=f"Starting agent analysis for {company_name}",
-            timestamp=datetime.datetime.now().isoformat()
+            timestamp=get_utc_timestamp()
         )
         yield await format_sse_event(start_event)
 
@@ -276,7 +281,7 @@ async def real_agent_analysis_stream(company_name: str, trade_date: str, convers
                 "state": result.get("state"),
                 "agents_used": ["Market Analyst", "Fundamental Analyst", "Information Analyst", "Risk Manager"]  # Placeholder
             },
-            timestamp=datetime.datetime.now().isoformat()
+            timestamp=get_utc_timestamp()
         )
         yield await format_sse_event(complete_event)
 
@@ -285,7 +290,7 @@ async def real_agent_analysis_stream(company_name: str, trade_date: str, convers
         error_event = AgentTraceEvent(
             event_type="error",
             message=f"Analysis failed: {str(e)}",
-            timestamp=datetime.datetime.now().isoformat()
+            timestamp=get_utc_timestamp()
         )
         yield await format_sse_event(error_event)
 
@@ -452,7 +457,7 @@ async def stream_agent_analysis(
                 start_event = AgentTraceEvent(
                     event_type="start",
                     message="Processing query directly (no agents required)",
-                    timestamp=datetime.datetime.now().isoformat(),
+                    timestamp=get_utc_timestamp(),
                     data={"intent": intent.value, "workflow": workflow.workflow_type}
                 )
                 yield await format_sse_event(start_event)
@@ -461,7 +466,7 @@ async def stream_agent_analysis(
                     event_type="complete",
                     message="Query processed (direct response)",
                     progress=100,
-                    timestamp=datetime.datetime.now().isoformat(),
+                    timestamp=get_utc_timestamp(),
                     data={"intent": intent.value}
                 )
                 yield await format_sse_event(complete_event)
@@ -489,7 +494,7 @@ async def stream_agent_analysis(
                 start_event = AgentTraceEvent(
                     event_type="orchestration_start",
                     message=f"Detected {intent.value} query, routing to {workflow.workflow_type}",
-                    timestamp=datetime.datetime.now().isoformat(),
+                    timestamp=get_utc_timestamp(),
                     data={
                         "intent": intent.value,
                         "workflow": workflow.workflow_type,
@@ -513,7 +518,8 @@ async def stream_agent_analysis(
                     company_name=final_company_name,
                     trade_date=request.trade_date,
                     workflow=workflow,
-                    conversation_context=request.conversation_context
+                    conversation_context=request.conversation_context,
+                    query=query_text  # Pass the extracted query for dynamic agent selection
                 )
                 
                 # Use real agent service streaming endpoint
@@ -536,7 +542,14 @@ async def stream_agent_analysis(
                 
                 try:
                     # Proxy the streaming response from the agent service
-                    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                    # Use separate timeouts: short connect timeout, long read timeout for streaming
+                    streaming_timeout = Timeout(
+                        connect=60.0,  # 60 second connection timeout
+                        read=None,     # No read timeout for streaming (let it run until completion)
+                        write=30.0,    # 30 second write timeout
+                        pool=10.0      # 10 second pool timeout
+                    )
+                    async with httpx.AsyncClient(timeout=streaming_timeout) as client:
                         async with client.stream("POST", agent_streaming_url, json=agent_request) as response:
                             response.raise_for_status()
                             async for line in response.aiter_lines():
@@ -556,8 +569,11 @@ async def stream_agent_analysis(
                                                 # Store the complete agent response for metadata
                                                 full_agent_response = data
                                                 
-                                                # Extract full response text - prefer "response" field which contains full analysis
+                                                # Extract full response text - prefer formatted response, then full analysis response
+                                                # Check state for formatted_response first (query-aware formatted response)
+                                                state_data = data.get("state", {})
                                                 final_response_text = (
+                                                    state_data.get("formatted_response") or  # Prefer formatted response (query-aware)
                                                     data.get("response") or  # Full analysis response
                                                     data.get("trader_investment_plan") or  # Trader's full plan
                                                     data.get("investment_plan") or  # Investment plan
@@ -593,19 +609,16 @@ async def stream_agent_analysis(
                                     # Handle any other SSE format lines
                                     yield line + "\n"
                     
-                    # Save agent response to database if thread_id is provided
-                    if request.thread_id and final_response_text and message_service:
-                        try:
-                            # Generate PDF from the agent analysis
+                    # Generate PDF from the agent analysis (even without thread_id)
                             pdf_filename = None
-                            if full_agent_response:
+                    if full_agent_response and final_response_text:
                                 try:
                                     company = full_agent_response.get("company") or final_company_name or "UNKNOWN"
                                     date = full_agent_response.get("date") or request.trade_date
                                     decision = full_agent_response.get("decision", "UNKNOWN")
-                                    state = full_agent_response
+                                    # Use the inner state if present; fallback to full response to avoid empty PDFs
+                                    state = full_agent_response.get("state") or full_agent_response
                                     
-                                    # Generate PDF
                                     pdf_buffer = generate_analysis_pdf(
                                         company=company,
                                         date=date,
@@ -613,7 +626,6 @@ async def stream_agent_analysis(
                                         state=state
                                     )
                                     
-                                    # Save PDF to disk
                                     pdf_dir = "/app/data/pdfs"
                                     os.makedirs(pdf_dir, exist_ok=True)
                                     
@@ -626,9 +638,11 @@ async def stream_agent_analysis(
                                     logger.info(f"Generated PDF: {pdf_path}")
                                 except Exception as pdf_error:
                                     logger.error(f"Failed to generate PDF: {pdf_error}", exc_info=True)
-                                    # Don't fail the entire request if PDF generation fails
+                            # Don't fail the request if PDF generation fails
                             
-                            # Prepare metadata with agent trace AND full analysis
+                    # Save agent response to database if thread_id is provided
+                    if request.thread_id and final_response_text and message_service:
+                        try:
                             metadata = {
                                 "agent_trace": {
                                     "events": agent_trace_events,
@@ -645,7 +659,7 @@ async def stream_agent_analysis(
                                 "agents_used": workflow.agents,
                                 # Include full agent analysis for frontend breakdown
                                 "agent_analysis": full_agent_response if full_agent_response else None,
-                                # Include PDF filename for download
+                                # Include PDF filename for download (if generated)
                                 "pdf_filename": pdf_filename
                             }
                             
@@ -673,7 +687,7 @@ async def stream_agent_analysis(
                     error_event = AgentTraceEvent(
                         event_type="error",
                         message=f"Agent service failed: {error_detail}",
-                        timestamp=datetime.datetime.now().isoformat()
+                        timestamp=get_utc_timestamp()
                     )
                     yield await format_sse_event(error_event)
                 except httpx.RequestError as e:
@@ -690,7 +704,7 @@ async def stream_agent_analysis(
                     error_event = AgentTraceEvent(
                         event_type="error",
                         message=f"Agent service unavailable: {error_msg}",
-                        timestamp=datetime.datetime.now().isoformat(),
+                        timestamp=get_utc_timestamp(),
                         data={
                             "agent_url": agent_streaming_url,
                             "error_type": type(e).__name__
@@ -702,7 +716,7 @@ async def stream_agent_analysis(
                     error_event = AgentTraceEvent(
                         event_type="error",
                         message=f"An unexpected error occurred: {str(e)}",
-                        timestamp=datetime.datetime.now().isoformat()
+                        timestamp=get_utc_timestamp()
                     )
                     yield await format_sse_event(error_event)
                     
@@ -711,7 +725,7 @@ async def stream_agent_analysis(
                 error_event = AgentTraceEvent(
                     event_type="error",
                     message=f"Streaming failed: {str(e)}",
-                    timestamp=datetime.datetime.now().isoformat()
+                    timestamp=get_utc_timestamp()
                 )
                 yield await format_sse_event(error_event)
 

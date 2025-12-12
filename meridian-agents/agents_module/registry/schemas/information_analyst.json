@@ -1,0 +1,50 @@
+{
+  "input_schema": {
+    "type": "object",
+    "required": ["company_of_interest", "trade_date"],
+    "properties": {
+      "company_of_interest": {
+        "type": "string",
+        "description": "Stock ticker symbol"
+      },
+      "trade_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Date for analysis"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["agent_id", "status", "payload"],
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "const": "information_analyst"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["success", "failure", "partial"]
+      },
+      "payload": {
+        "type": "object",
+        "required": ["information_report"],
+        "properties": {
+          "information_report": {
+            "type": "string",
+            "description": "Comprehensive information report covering news, global trends, social media sentiment, and public perception"
+          },
+          "news_report": {
+            "type": "string",
+            "description": "News analysis section"
+          },
+          "sentiment_report": {
+            "type": "string",
+            "description": "Social media and sentiment analysis section"
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,27 @@
+{
+  "input_schema": {
+    "type": "object",
+    "required": ["risk_debate_state"],
+    "properties": {
+      "risk_debate_state": {"type": "object"},
+      "trader_investment_plan": {"type": "string"}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["agent_id", "status", "payload"],
+    "properties": {
+      "agent_id": {"type": "string", "const": "risk_manager"},
+      "status": {"type": "string", "enum": ["success", "failure", "partial"]},
+      "payload": {
+        "type": "object",
+        "properties": {
+          "final_trade_decision": {"type": "string"},
+          "risk_score": {"type": "integer", "minimum": 1, "maximum": 10},
+          "judge_decision": {"type": "string"}
+        }
+      }
+    }
+  }
+}
+

@@ -27,10 +27,19 @@ class AnalyzeRequest(BaseModel):
         pattern=r'^\d{4}-\d{2}-\d{2}$',
         description="Trade date (ISO format: YYYY-MM-DD)"
     )
+    query: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description="Optional user query for dynamic agent selection. If not provided, will be extracted from conversation_context or generated from company_name."
+    )
     conversation_context: Optional[List[ConversationMessage]] = Field(
         None,
         max_items=50,
         description="Optional conversation context (last N messages, max 50)"
+    )
+    selective_agents: Optional[List[str]] = Field(
+        None,
+        description="Optional list of agents to use (for selective workflows). If provided, only these agents will be used."
     )
     
     @classmethod
@@ -166,6 +175,40 @@ class FocusedAnalysisRequest(BaseModel):
     focus: str = Field(
         ...,
         description="Focus area: 'sentiment_only', 'technical_only', 'fundamental_only'"
+    )
+    conversation_context: Optional[List[ConversationMessage]] = Field(
+        None,
+        max_items=50,
+        description="Optional conversation context (last N messages, max 50)"
+    )
+
+
+class SelectiveAnalysisRequest(BaseModel):
+    """Request model for selective analysis endpoint."""
+    company_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Company name or ticker symbol"
+    )
+    trade_date: str = Field(
+        ...,
+        pattern=r'^\d{4}-\d{2}-\d{2}$',
+        description="Trade date (ISO format: YYYY-MM-DD)"
+    )
+    selective_agents: List[str] = Field(
+        ...,
+        min_items=1,
+        max_items=20,
+        description="List of specific agents to run"
+    )
+    include_debate: bool = Field(
+        False,
+        description="Whether to include debate phase with researchers"
+    )
+    include_risk: bool = Field(
+        False,
+        description="Whether to include risk analysis phase"
     )
     conversation_context: Optional[List[ConversationMessage]] = Field(
         None,

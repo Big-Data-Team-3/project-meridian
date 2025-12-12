@@ -1,4 +1,4 @@
-:q#!/bin/bash
+#!/bin/bash
 
 # Meridian Project - Local Docker Deployment Script
 # This script rebuilds all Docker images and starts containers
@@ -37,6 +37,35 @@ fi
 if [ -z "$GOOGLE_CLIENT_ID" ]; then
     echo -e "${YELLOW}⚠️  Warning: GOOGLE_CLIENT_ID is not set${NC}"
     echo -e "${YELLOW}   Google Sign-In will not work. Set it in .env file or export it.${NC}\n"
+fi
+
+# Display database configuration status
+if [ -z "$INSTANCE_CONNECTION_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ] || [ -z "$DB_NAME" ]; then
+    echo -e "${YELLOW}⚠️  Warning: Database environment variables not set${NC}"
+    echo -e "${YELLOW}   Required: INSTANCE_CONNECTION_NAME, DB_USER, DB_PASS, DB_NAME${NC}"
+    echo -e "${YELLOW}   Set them in .env file or export them${NC}\n"
+else
+    echo -e "${GREEN}✓ Database configuration found${NC}\n"
+fi
+
+# Display OpenAI configuration status
+if [ -z "$OPENAI_API_KEY" ]; then
+    echo -e "${YELLOW}⚠️  Warning: OPENAI_API_KEY is not set${NC}"
+    echo -e "${YELLOW}   Chat functionality will not work. Set it in .env file or export it.${NC}\n"
+else
+    echo -e "${GREEN}✓ OpenAI API key found${NC}\n"
+fi
+
+# Display GCP credentials status
+if [ -z "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    echo -e "${YELLOW}⚠️  Warning: GOOGLE_APPLICATION_CREDENTIALS is not set${NC}"
+    echo -e "${YELLOW}   Cloud SQL connection will fail. Set it in .env file or export it.${NC}"
+    echo -e "${YELLOW}   Example: GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json${NC}\n"
+elif [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    echo -e "${YELLOW}⚠️  Warning: GOOGLE_APPLICATION_CREDENTIALS file not found: ${GOOGLE_APPLICATION_CREDENTIALS}${NC}"
+    echo -e "${YELLOW}   Cloud SQL connection will fail. Check the file path.${NC}\n"
+else
+    echo -e "${GREEN}✓ GCP credentials file found: ${GOOGLE_APPLICATION_CREDENTIALS}${NC}\n"
 fi
 
 # Configuration

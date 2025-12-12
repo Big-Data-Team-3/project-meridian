@@ -41,7 +41,7 @@ interface AnalysisState {
 
 interface AnalysisBreakdownProps {
   state: AnalysisState;
-  decision: string;
+  decision: string | null | undefined;
   company: string;
   date: string;
 }
@@ -102,6 +102,10 @@ function Section({ title, content, icon, defaultExpanded = false }: SectionProps
 }
 
 export function AnalysisBreakdown({ state, decision, company, date }: AnalysisBreakdownProps): ReactElement {
+  // Check if decision exists and is a valid trading decision
+  const hasDecision = decision && 
+                      decision.trim() !== '' && 
+                      ['BUY', 'SELL', 'HOLD'].includes(decision.toUpperCase());
   const [isDownloading, setIsDownloading] = useState(false);
   
   const decisionColors = {
@@ -110,7 +114,9 @@ export function AnalysisBreakdown({ state, decision, company, date }: AnalysisBr
     HOLD: 'bg-yellow-500/20 text-yellow-600 border-yellow-500/30',
   };
   
-  const decisionColor = decisionColors[decision as keyof typeof decisionColors] || 'bg-surface text-text-primary border-border';
+  const decisionColor = hasDecision 
+    ? (decisionColors[decision.toUpperCase() as keyof typeof decisionColors] || 'bg-surface text-text-primary border-border')
+    : 'bg-surface text-text-primary border-border';
   
   const downloadPDF = async () => {
     setIsDownloading(true);
@@ -153,14 +159,16 @@ export function AnalysisBreakdown({ state, decision, company, date }: AnalysisBr
     <div className="space-y-3 mt-4">
       {/* Decision Badge & Download Button */}
       <div className="flex items-center justify-between">
-        <div className={cn('inline-flex items-center gap-2 px-4 py-2 rounded-lg border font-semibold', decisionColor)}>
-          <span className="text-lg">
-            {decision === 'BUY' && '📈'}
-            {decision === 'SELL' && '📉'}
-            {decision === 'HOLD' && '⏸️'}
-          </span>
-          <span>Decision: {decision}</span>
-        </div>
+        {hasDecision ? (
+          <div className={cn('inline-flex items-center gap-2 px-4 py-2 rounded-lg border font-semibold', decisionColor)}>
+            <span className="text-lg">
+              {decision && decision.toUpperCase() === 'BUY' && '📈'}
+              {decision && decision.toUpperCase() === 'SELL' && '📉'}
+              {decision && decision.toUpperCase() === 'HOLD' && '⏸️'}
+            </span>
+            <span>Decision: {decision && decision.toUpperCase()}</span>
+          </div>
+        ) : null}
         <div className="flex items-center gap-3">
           <button
             onClick={downloadPDF}
@@ -184,11 +192,12 @@ export function AnalysisBreakdown({ state, decision, company, date }: AnalysisBr
               </>
             )}
           </button>
+        </div>
+      </div>
+      
           <div className="text-xs text-text-secondary">
             {company} • {date}
           </div>
-        </div>
-      </div>
       
       {/* Final Decision */}
       {state.final_trade_decision && (

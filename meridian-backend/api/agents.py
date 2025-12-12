@@ -35,7 +35,7 @@ class AgentAnalyzeResponse(BaseModel):
     """Response model for agents analysis endpoint."""
     company: str = Field(..., description="Company name or ticker")
     date: str = Field(..., description="Trade date")
-    decision: str = Field(..., description="Trading decision: 'BUY', 'SELL', or 'HOLD'")
+    decision: Optional[str] = Field(None, description="Trading decision: 'BUY', 'SELL', 'HOLD', or None for simple analysis queries")
     state: dict = Field(..., description="Complete analysis state with all agent outputs and reports")
 
 
@@ -50,10 +50,21 @@ async def agents_analyze(request: AgentAnalyzeRequest):
     agents_url = os.getenv("AGENTS_SERVICE_URL", "http://localhost:8001")
     analyze_endpoint = f"{agents_url}/analyze"
     
+    # Extract query from conversation context (last user message)
+    query = None
+    if request.conversation_context:
+        user_messages = [msg for msg in request.conversation_context if msg.role == "user"]
+        if user_messages:
+            query = user_messages[-1].content
+    
     payload = {
         "company_name": request.company_name,
         "trade_date": request.trade_date
     }
+    
+    # Add query if extracted
+    if query:
+        payload["query"] = query
     
     if request.conversation_context:
         payload["conversation_context"] = [

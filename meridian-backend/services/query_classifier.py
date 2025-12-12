@@ -178,8 +178,8 @@ class QueryClassifier:
         NEWS_SENTIMENT: Recent news, market sentiment, social media analysis
         Examples: "Apple news today", "Market sentiment", "Tesla social media buzz"
 
-        COMPREHENSIVE_TRADE: Investment decisions, buy/sell recommendations requiring full analysis
-        Examples: "Should I buy Apple stock?", "Is Tesla undervalued?", "Investment thesis for NVIDIA"
+        COMPREHENSIVE_TRADE: Investment decisions, buy/sell recommendations, investment analysis requiring full multi-agent analysis
+        Examples: "Should I buy Apple stock?", "Is Tesla undervalued?", "Investment thesis for NVIDIA", "Analyze TSLA for investment", "Is MSFT a good investment?", "Evaluate NVDA stock", "Stock analysis for AMZN", "Investment opportunity in GOOGL", "Should I invest in META?", "Comprehensive review of AAPL", "Is TSLA worth buying?", "Long-term investment potential of NVDA", "Risk-reward analysis for MSFT", "Investment recommendation for AMZN"
 
         PORTFOLIO_REVIEW: Portfolio analysis, performance reviews, asset allocation
         Examples: "How is my portfolio doing?", "Review my investments", "Portfolio optimization"
@@ -196,8 +196,11 @@ class QueryClassifier:
         2. Look for financial vs casual context
         3. Consider complexity - does this require real-time data or agent workflows?
         4. Be specific - "Apple stock" alone might be BASIC_INFO, but "Should I buy Apple stock?" is COMPREHENSIVE_TRADE
-        5. Use conversation context when available to understand follow-up questions
-        6. Questions about the AI itself (you/Meridian) are always SIMPLE_CHAT, never requiring agent workflows
+        5. INVESTMENT ANALYSIS PRIORITY: Any query asking for investment advice, stock evaluation, or comprehensive analysis should default to COMPREHENSIVE_TRADE when in doubt
+        6. BROAD INVESTMENT QUERIES: Questions like "Is X a good investment?", "Analyze Y stock", "Evaluate Z for investment" should trigger COMPREHENSIVE_TRADE
+        7. Use conversation context when available to understand follow-up questions
+        8. Questions about the AI itself (you/Meridian) are always SIMPLE_CHAT, never requiring agent workflows
+        9. When uncertain between specific analysis types (technical/fundamental) and comprehensive, choose COMPREHENSIVE_TRADE for investment contexts
 
         ENTITY EXTRACTION:
         - Extract ALL company names and ticker symbols mentioned in the query

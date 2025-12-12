@@ -6,6 +6,7 @@ from fastapi.openapi.utils import get_openapi
 import json
 import asyncio
 from graph.trading_graph import TradingAgentsGraph
+from graph.planner.models import ExecutionPlan
 import uvicorn
 import os
 import traceback
@@ -19,7 +20,8 @@ try:
         AnalyzeRequest,
         SingleAgentRequest,
         MultiAgentRequest,
-        FocusedAnalysisRequest
+        FocusedAnalysisRequest,
+        SelectiveAnalysisRequest
     )
     from models.responses import HealthResponse, AnalyzeResponse, ErrorResponse
     from utils.config import get_config
@@ -48,7 +50,8 @@ except ImportError:
         AnalyzeRequest,
         SingleAgentRequest,
         MultiAgentRequest,
-        FocusedAnalysisRequest
+        FocusedAnalysisRequest,
+        SelectiveAnalysisRequest
     )
     from models.responses import HealthResponse, AnalyzeResponse, ErrorResponse
     from utils.config import get_config
@@ -184,13 +187,97 @@ _graph_cache: Dict[str, TradingAgentsGraph] = {}
 _graph_cache_lock = threading.Lock()
 
 
-def get_graph(selected_analysts: Optional[List[str]] = None) -> TradingAgentsGraph:
+def clean_state_for_response(state: Dict[str, Any], execution_plan: Optional[ExecutionPlan] = None) -> Dict[str, Any]:
+    """
+    Clean state dictionary for response by removing empty fields and unused phases.
+    
+    Args:
+        state: Raw state dictionary from graph execution
+        execution_plan: Optional execution plan to determine which phases were used
+    
+    Returns:
+        Cleaned state dictionary with only relevant fields
+    """
+    # Determine which phases were used from execution plan or state content
+    include_debate = False
+    include_risk = False
+    
+    if execution_plan:
+        include_debate = any(agent_id in ["bull_researcher", "bear_researcher", "research_manager"] 
+                            for agent_id in execution_plan.agents)
+        include_risk = any(agent_id in ["risky_debator", "safe_debator", "neutral_debator", "risk_manager"]
+                          for agent_id in execution_plan.agents)
+    else:
+        # Fallback: check state content
+        include_debate = "investment_debate_state" in state and state.get("investment_debate_state")
+        include_risk = "risk_debate_state" in state and state.get("risk_debate_state")
+    
+    cleaned = {}
+    
+    # Include reports (only if they have content)
+    report_fields = [
+        "market_report",
+        "fundamentals_report", 
+        "sentiment_report",
+        "news_report",
+        "information_report",
+        "investment_plan",
+        "trader_investment_plan",
+        "final_trade_decision",
+        "formatted_response",  # Query-aware formatted response from ResponseFormatter
+        "response_source",      # Source of response (formatted_agent_output or fallback_llm)
+    ]
+    
+    for field in report_fields:
+        if field in state:
+            # For formatted_response and response_source, include even if empty (for debugging)
+            if field in ["formatted_response", "response_source"]:
+                if isinstance(state[field], str):
+                    cleaned[field] = state[field]
+            elif isinstance(state[field], str) and state[field].strip():
+                cleaned[field] = state[field]
+    
+    # Only include debate state if debate phase was used and has content
+    if include_debate and "investment_debate_state" in state:
+        debate_state = state["investment_debate_state"]
+        has_content = any([
+            debate_state.get("bull_history", "").strip(),
+            debate_state.get("bear_history", "").strip(),
+            debate_state.get("judge_decision", "").strip()
+        ])
+        if has_content:
+            cleaned["investment_debate_state"] = {
+                "bull_history": debate_state.get("bull_history", ""),
+                "bear_history": debate_state.get("bear_history", ""),
+                "judge_decision": debate_state.get("judge_decision", "")
+            }
+    
+    # Only include risk state if risk phase was used and has content
+    if include_risk and "risk_debate_state" in state:
+        risk_state = state["risk_debate_state"]
+        has_content = any([
+            risk_state.get("risky_history", "").strip(),
+            risk_state.get("safe_history", "").strip(),
+            risk_state.get("neutral_history", "").strip(),
+            risk_state.get("judge_decision", "").strip()
+        ])
+        if has_content:
+            cleaned["risk_debate_state"] = {
+                "risky_history": risk_state.get("risky_history", ""),
+                "safe_history": risk_state.get("safe_history", ""),
+                "neutral_history": risk_state.get("neutral_history", ""),
+                "judge_decision": risk_state.get("judge_decision", "")
+            }
+    
+    return cleaned
+
+
+def get_graph() -> TradingAgentsGraph:
     """
     Get or initialize TradingAgentsGraph instance (thread-safe).
     
-    Args:
-        selected_analysts: Optional list of analyst types. If None, uses default.
-                          If provided, returns a graph with only those analysts.
+    The graph is always dynamically constructed based on queries.
+    No static/legacy graphs are used.
     
     Returns:
         TradingAgentsGraph instance
@@ -198,28 +285,8 @@ def get_graph(selected_analysts: Optional[List[str]] = None) -> TradingAgentsGra
     Raises:
         GraphInitializationError: If graph initialization fails
     """
-    global _graph_instance, _graph_initializing, _graph_init_error, _graph_cache
+    global _graph_instance, _graph_initializing, _graph_init_error
     
-    # If specific analysts requested, use cache
-    if selected_analysts is not None:
-        # Sort to ensure consistent cache key
-        cache_key = ",".join(sorted(selected_analysts))
-        
-        with _graph_cache_lock:
-            if cache_key in _graph_cache:
-                return _graph_cache[cache_key]
-            
-            # Create new graph with specific analysts
-            try:
-                logger.info(f"Creating graph with analysts: {selected_analysts}")
-                graph = TradingAgentsGraph(selected_analysts=selected_analysts)
-                _graph_cache[cache_key] = graph
-                return graph
-            except Exception as e:
-                logger.error(f"Failed to create graph with analysts {selected_analysts}: {e}", exc_info=True)
-                raise GraphInitializationError(f"Failed to create graph: {e}") from e
-    
-    # Default graph (all analysts)
     # Double-check locking pattern
     if _graph_instance is not None:
         return _graph_instance
@@ -246,7 +313,7 @@ def get_graph(selected_analysts: Optional[List[str]] = None) -> TradingAgentsGra
         _graph_init_error = None
         
         try:
-            logger.info("Initializing TradingAgentsGraph...")
+            logger.info("Initializing TradingAgentsGraph (dynamic mode only)...")
             _graph_instance = TradingAgentsGraph()
             logger.info("TradingAgentsGraph initialized successfully")
             return _graph_instance
@@ -354,7 +421,9 @@ async def _run_analysis_with_streaming(
     graph: TradingAgentsGraph,
     company_name: str,
     trade_date: str,
-    event_emitter: EventEmitter
+    event_emitter: EventEmitter,
+    query: Optional[str] = None,
+    context: Optional[List[Dict[str, Any]]] = None
 ) -> tuple[Dict[str, Any], str]:
     """
     Run analysis with streaming events.
@@ -364,6 +433,8 @@ async def _run_analysis_with_streaming(
         company_name: Company name or ticker
         trade_date: Trade date
         event_emitter: EventEmitter for streaming events
+        query: Optional query string for dynamic graph planning
+        context: Optional conversation context
         
     Returns:
         Tuple of (final_state, decision)
@@ -372,9 +443,11 @@ async def _run_analysis_with_streaming(
     graph.enable_event_streaming(event_emitter)
     
     # Run analysis (events will be emitted during execution)
-    final_state, decision = await graph.propagate(
+    final_state, decision, aggregated_context, synthesizer_output = await graph.propagate(
         company_name.strip().upper(),
-        trade_date
+        trade_date,
+        query=query,
+        context=context
     )
     
     return final_state, decision
@@ -420,6 +493,44 @@ async def analyze(request_data: AnalyzeRequest, request: Request):
         # Get graph (will initialize if needed)
         graph = get_graph()
         
+        # Extract query: Priority 1) Direct query parameter, 2) conversation_context, 3) default
+        query = None
+        
+        # Priority 1: Use direct query parameter if provided
+        if request_data.query:
+            query = request_data.query.strip()
+            logger.info(
+                f"✅ Using direct query parameter: '{query[:200]}...'",
+                extra={"extra_fields": {"request_id": request_id, "query_preview": query[:200]}}
+            )
+        
+        # Priority 2: Extract from conversation context (last user message)
+        if not query and request_data.conversation_context:
+            logger.info(
+                f"Conversation context provided: {len(request_data.conversation_context)} messages",
+                extra={"extra_fields": {"request_id": request_id, "context_count": len(request_data.conversation_context)}}
+            )
+            # Get last user message as the query
+            user_messages = [msg for msg in request_data.conversation_context if msg.role == "user"]
+            logger.info(
+                f"Found {len(user_messages)} user messages in context",
+                extra={"extra_fields": {"request_id": request_id, "user_message_count": len(user_messages)}}
+            )
+            if user_messages:
+                query = user_messages[-1].content.strip()
+                logger.info(
+                    f"✅ Extracted query from context: '{query[:200]}...'",
+                    extra={"extra_fields": {"request_id": request_id, "query_preview": query[:200]}}
+                )
+        
+        # Priority 3: Generate default query if still none
+        if not query:
+            query = f"Analyze {request_data.company_name} for trading decision as of {request_data.trade_date}"
+            logger.warning(
+                f"⚠️ Using default query (no user query found): '{query}'",
+                extra={"extra_fields": {"request_id": request_id}}
+            )
+        
         # Process conversation context if provided
         context_messages = None
         if request_data.conversation_context:
@@ -442,18 +553,36 @@ async def analyze(request_data: AnalyzeRequest, request: Request):
                 )
         
         # Run analysis (timeout handled by uvicorn/async framework)
-        final_state, decision = await graph.propagate(
+        final_state, decision, aggregated_context, synthesizer_output = await graph.propagate(
             request_data.company_name.strip().upper(),
-            request_data.trade_date
+            request_data.trade_date,
+            query=query,  # Pass the extracted/generated query
+            context=context_messages
         )
         
         response_time = time.time() - start_time
+        
+        # Clean state for response (remove empty fields and unused phases)
+        # Extract execution plan from aggregated context (it's stored as dict)
+        execution_plan_dict = aggregated_context.execution_plan if aggregated_context else None
+        execution_plan_obj = None
+        if execution_plan_dict:
+            from graph.planner.models import ExecutionPlan
+            try:
+                execution_plan_obj = ExecutionPlan(**execution_plan_dict)
+            except:
+                execution_plan_obj = None
+        
+        cleaned_state = clean_state_for_response(
+            final_state,
+            execution_plan=execution_plan_obj
+        )
         
         response = AnalyzeResponse(
             company=request_data.company_name,
             date=request_data.trade_date,
             decision=decision,
-            state=final_state
+            state=cleaned_state
         )
         
         logger.info(
@@ -531,7 +660,7 @@ async def analyze_stream(request_data: AnalyzeRequest, request: Request):
             }
         )
         
-        # Get graph
+        # Get graph (always uses dynamic graph construction)
         graph = get_graph()
         
         # Create event emitter and queue for events
@@ -556,13 +685,67 @@ async def analyze_stream(request_data: AnalyzeRequest, request: Request):
         async def event_generator():
             """Generate SSE events from agent execution."""
             try:
+                # Extract query: Priority 1) Direct query parameter, 2) conversation_context, 3) default
+                query = None
+                
+                # Priority 1: Use direct query parameter if provided
+                if request_data.query:
+                    query = request_data.query.strip()
+                    logger.info(
+                        f"✅ Using direct query parameter: '{query[:200]}...'",
+                        extra={"extra_fields": {"request_id": request_id, "query_preview": query[:200]}}
+                    )
+                
+                # Priority 2: Extract from conversation context (last user message)
+                if not query and request_data.conversation_context:
+                    logger.info(
+                        f"Conversation context provided: {len(request_data.conversation_context)} messages",
+                        extra={"extra_fields": {"request_id": request_id, "context_count": len(request_data.conversation_context)}}
+                    )
+                    # Get last user message as the query
+                    user_messages = [msg for msg in request_data.conversation_context if msg.role == "user"]
+                    logger.info(
+                        f"Found {len(user_messages)} user messages in context",
+                        extra={"extra_fields": {"request_id": request_id, "user_message_count": len(user_messages)}}
+                    )
+                    if user_messages:
+                        query = user_messages[-1].content.strip()
+                        logger.info(
+                            f"✅ Extracted query from context: '{query[:200]}...'",
+                            extra={"extra_fields": {"request_id": request_id, "query_preview": query[:200]}}
+                        )
+                
+                # Priority 3: Generate default query if still none
+                if not query:
+                    query = f"Analyze {request_data.company_name} for trading decision as of {request_data.trade_date}"
+                    logger.warning(
+                        f"⚠️ Using default query (no user query found): '{query}'",
+                        extra={"extra_fields": {"request_id": request_id}}
+                    )
+                
+                # Process conversation context if provided
+                context_messages = None
+                if request_data.conversation_context:
+                    MAX_CONTEXT_MESSAGES = 20
+                    context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
+                    context_messages = [
+                        {
+                            "role": msg.role,
+                            "content": msg.content,
+                            "timestamp": msg.timestamp
+                        }
+                        for msg in context_list
+                    ]
+                
                 # Start analysis in background
                 analysis_task = asyncio.create_task(
                     _run_analysis_with_streaming(
                         graph,
                         request_data.company_name,
                         request_data.trade_date,
-                        event_emitter
+                        event_emitter,
+                        query=query,  # Pass the extracted/generated query
+                        context=context_messages
                     )
                 )
                 
@@ -570,6 +753,7 @@ async def analyze_stream(request_data: AnalyzeRequest, request: Request):
                 final_state = None
                 decision = None
                 analysis_complete = False
+                analysis_complete_event_data = None  # Store data from analysis_complete event
                 
                 while not analysis_complete:
                     try:
@@ -580,6 +764,8 @@ async def analyze_stream(request_data: AnalyzeRequest, request: Request):
                         # Check if analysis complete
                         if event.event_type == "analysis_complete":
                             analysis_complete = True
+                            # Store the event data which already contains the full response
+                            analysis_complete_event_data = event.data if hasattr(event, 'data') else None
                             # Get final result from task
                             final_state, decision = await analysis_task
                             
@@ -600,28 +786,59 @@ async def analyze_stream(request_data: AnalyzeRequest, request: Request):
                         continue
                 
                 # Send final result as completion event if not already sent
-                if final_state and decision:
-                    # Extract full response text from state (not just decision)
-                    # Prefer trader_investment_plan as it contains the complete analysis
-                    full_response = (
-                        final_state.get("trader_investment_plan") or
-                        final_state.get("investment_plan") or
-                        final_state.get("investment_debate_state", {}).get("judge_decision") or
-                        final_state.get("risk_debate_state", {}).get("judge_decision") or
-                        decision  # Fallback to decision if nothing else available
-                    )
-                    
-                    # Prepare serializable state using graph's method
-                    serializable_state = graph._prepare_serializable_state(final_state)
-                    
-                    # Complete data with FULL state breakdown
-                    complete_data = {
-                        "decision": decision,
-                        "company": request_data.company_name,
-                        "date": request_data.trade_date,
-                        "state": serializable_state,  # ← FULL STATE for frontend breakdown
-                        "response": str(full_response),  # Full analysis response text
-                    }
+                # Send complete event even when decision is None (for simple analysis queries)
+                if final_state:
+                    # Use data from analysis_complete event if available (it has the full response)
+                    # Otherwise, extract from final_state
+                    if analysis_complete_event_data and isinstance(analysis_complete_event_data, dict):
+                        # Use the response and decision from the analysis_complete event
+                        full_response = analysis_complete_event_data.get("response", "")
+                        event_decision = analysis_complete_event_data.get("decision")
+                        event_state = analysis_complete_event_data.get("state", {})
+                        
+                        # Extract key reports from event state or final_state
+                        summary_data = {
+                            "decision": event_decision if event_decision is not None else decision,  # Can be None for simple analysis queries
+                            "company": request_data.company_name,
+                            "date": request_data.trade_date,
+                            "response": str(full_response) if full_response else "Analysis complete",  # Full analysis response from event
+                            "reports": {
+                                "market": event_state.get("market_report") or final_state.get("market_report", ""),
+                                "fundamentals": event_state.get("fundamentals_report") or final_state.get("fundamentals_report", ""),
+                                "sentiment": event_state.get("sentiment_report") or final_state.get("sentiment_report", ""),
+                                "news": event_state.get("news_report") or final_state.get("news_report", ""),
+                                "information": event_state.get("information_report") or final_state.get("information_report", "")
+                            }
+                        }
+                    else:
+                        # Fallback: extract from final_state if event data not available
+                        full_response = (
+                            final_state.get("trader_investment_plan") or
+                            final_state.get("investment_plan") or
+                            final_state.get("investment_debate_state", {}).get("judge_decision") or
+                            final_state.get("risk_debate_state", {}).get("judge_decision") or
+                            final_state.get("market_report") or  # For market analyst queries
+                            final_state.get("fundamentals_report") or  # For fundamentals analyst queries
+                            final_state.get("information_report") or  # For information analyst queries
+                            final_state.get("news_report") or
+                            final_state.get("sentiment_report") or
+                            (decision if decision else None)  # Fallback to decision only if it exists
+                        )
+                        
+                        # Extract key reports for summary
+                        summary_data = {
+                            "decision": decision,  # Can be None for simple analysis queries
+                            "company": request_data.company_name,
+                            "date": request_data.trade_date,
+                            "response": str(full_response) if full_response else "Analysis complete",  # Full analysis response
+                            "reports": {
+                                "market": final_state.get("market_report", ""),
+                                "fundamentals": final_state.get("fundamentals_report", ""),
+                                "sentiment": final_state.get("sentiment_report", ""),
+                                "news": final_state.get("news_report", ""),
+                                "information": final_state.get("information_report", "")
+                            }
+                        }
                     
                     # Only include serialized state if needed (it's large and may contain non-serializable objects)
                     # The state will be serialized by format_sse_event if included
@@ -629,7 +846,7 @@ async def analyze_stream(request_data: AnalyzeRequest, request: Request):
                         event_type="complete",
                         message=f"Analysis complete for {request_data.company_name}",
                         progress=100,
-                        data=complete_data
+                        data=summary_data
                     )
                     yield format_sse_event(complete_event)
                     
@@ -696,27 +913,73 @@ async def analyze_single_agent(agent_type: str, request_data: SingleAgentRequest
             }
         )
         
-        # Get graph with only the specified agent
-        graph = get_graph(selected_analysts=[agent_type])
+        # Get graph (always uses dynamic graph construction)
+        graph = get_graph()
         
         # Process conversation context if provided
+        context_messages = None
+        query = None  # Extract query from conversation context
+        
         if request_data.conversation_context:
             MAX_CONTEXT_MESSAGES = 20
             context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
+            context_messages = [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp
+                }
+                for msg in context_list
+            ]
+            
+            # Extract query from conversation context (last user message)
+            user_messages = [msg for msg in request_data.conversation_context if msg.role == "user"]
+            if user_messages:
+                query = user_messages[-1].content.strip()
+                logger.info(
+                    f"✅ Extracted query from context: '{query[:200]}...'",
+                    extra={"extra_fields": {"request_id": request_id, "query_preview": query[:200]}}
+                )
+        
+        # If no query found, generate a default based on agent type
+        if not query:
+            query = f"Analyze {request_data.company_name} using {agent_type} analysis as of {request_data.trade_date}"
+            logger.info(
+                f"⚠️ Using default query: '{query}'",
+                extra={"extra_fields": {"request_id": request_id}}
+            )
         
         # Run analysis
-        final_state, decision = await graph.propagate(
+        final_state, decision, aggregated_context, synthesizer_output = await graph.propagate(
             request_data.company_name.strip().upper(),
-            request_data.trade_date
+            request_data.trade_date,
+            query=query,  # Pass the extracted query instead of None
+            context=context_messages
         )
         
         response_time = time.time() - start_time
+        
+        # Clean state for response (remove empty fields and unused phases)
+        # Extract execution plan from aggregated context (it's stored as dict)
+        execution_plan_dict = aggregated_context.execution_plan if aggregated_context else None
+        execution_plan_obj = None
+        if execution_plan_dict:
+            from graph.planner.models import ExecutionPlan
+            try:
+                execution_plan_obj = ExecutionPlan(**execution_plan_dict)
+            except:
+                execution_plan_obj = None
+        
+        cleaned_state = clean_state_for_response(
+            final_state,
+            execution_plan=execution_plan_obj
+        )
         
         response = AnalyzeResponse(
             company=request_data.company_name,
             date=request_data.trade_date,
             decision=decision,
-            state=final_state
+            state=cleaned_state
         )
         
         logger.info(
@@ -780,27 +1043,73 @@ async def analyze_multi_agent(request_data: MultiAgentRequest, request: Request)
             }
         )
         
-        # Get graph with selected agents
-        graph = get_graph(selected_analysts=request_data.agents)
+        # Get graph (always uses dynamic graph construction)
+        graph = get_graph()
         
         # Process conversation context if provided
+        context_messages = None
+        query = None  # Extract query from conversation context
+        
         if request_data.conversation_context:
             MAX_CONTEXT_MESSAGES = 20
             context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
+            context_messages = [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp
+                }
+                for msg in context_list
+            ]
+            
+            # Extract query from conversation context (last user message)
+            user_messages = [msg for msg in request_data.conversation_context if msg.role == "user"]
+            if user_messages:
+                query = user_messages[-1].content.strip()
+                logger.info(
+                    f"✅ Extracted query from context: '{query[:200]}...'",
+                    extra={"extra_fields": {"request_id": request_id, "query_preview": query[:200]}}
+                )
+        
+        # If no query found, generate a default
+        if not query:
+            query = f"Analyze {request_data.company_name} using {', '.join(request_data.agents)} analysis as of {request_data.trade_date}"
+            logger.info(
+                f"⚠️ Using default query: '{query}'",
+                extra={"extra_fields": {"request_id": request_id}}
+            )
         
         # Run analysis
-        final_state, decision = await graph.propagate(
+        final_state, decision, aggregated_context, synthesizer_output = await graph.propagate(
             request_data.company_name.strip().upper(),
-            request_data.trade_date
+            request_data.trade_date,
+            query=query,  # Pass the extracted query instead of None
+            context=context_messages
         )
         
         response_time = time.time() - start_time
+        
+        # Clean state for response (remove empty fields and unused phases)
+        # Extract execution plan from aggregated context (it's stored as dict)
+        execution_plan_dict = aggregated_context.execution_plan if aggregated_context else None
+        execution_plan_obj = None
+        if execution_plan_dict:
+            from graph.planner.models import ExecutionPlan
+            try:
+                execution_plan_obj = ExecutionPlan(**execution_plan_dict)
+            except:
+                execution_plan_obj = None
+        
+        cleaned_state = clean_state_for_response(
+            final_state,
+            execution_plan=execution_plan_obj
+        )
         
         response = AnalyzeResponse(
             company=request_data.company_name,
             date=request_data.trade_date,
             decision=decision,
-            state=final_state
+            state=cleaned_state
         )
         
         logger.info(
@@ -874,27 +1183,54 @@ async def analyze_focused(request_data: FocusedAnalysisRequest, request: Request
             }
         )
         
-        # Get graph with focused agent
-        graph = get_graph(selected_analysts=[agent_type])
+        # Get graph (always uses dynamic graph construction)
+        graph = get_graph()
         
         # Process conversation context if provided
+        context_messages = None
         if request_data.conversation_context:
             MAX_CONTEXT_MESSAGES = 20
             context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
+            context_messages = [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp
+                }
+                for msg in context_list
+            ]
         
         # Run analysis
-        final_state, decision = await graph.propagate(
+        final_state, decision, aggregated_context, synthesizer_output = await graph.propagate(
             request_data.company_name.strip().upper(),
-            request_data.trade_date
+            request_data.trade_date,
+            query=None,
+            context=context_messages
         )
         
         response_time = time.time() - start_time
+        
+        # Clean state for response (remove empty fields and unused phases)
+        # Extract execution plan from aggregated context (it's stored as dict)
+        execution_plan_dict = aggregated_context.execution_plan if aggregated_context else None
+        execution_plan_obj = None
+        if execution_plan_dict:
+            from graph.planner.models import ExecutionPlan
+            try:
+                execution_plan_obj = ExecutionPlan(**execution_plan_dict)
+            except:
+                execution_plan_obj = None
+        
+        cleaned_state = clean_state_for_response(
+            final_state,
+            execution_plan=execution_plan_obj
+        )
         
         response = AnalyzeResponse(
             company=request_data.company_name,
             date=request_data.trade_date,
             decision=decision,
-            state=final_state
+            state=cleaned_state
         )
         
         logger.info(
@@ -915,6 +1251,138 @@ async def analyze_focused(request_data: FocusedAnalysisRequest, request: Request
         raise handle_http_exception(e, status_code=500)
     except Exception as e:
         logger.error(f"Focused analysis error: {e}", exc_info=True)
+        raise handle_http_exception(e, status_code=500)
+
+
+@app.post("/analyze/selective", response_model=AnalyzeResponse)
+async def analyze_selective(request_data: SelectiveAnalysisRequest, request: Request):
+    """
+    Analyze a company using a selective set of agents.
+
+    Args:
+        request_data: Analysis request with company name, trade date, and selective agents
+
+    Selective agents can include:
+        - Analysts: "market", "information", "fundamentals"
+        - Researchers: "bull_researcher", "bear_researcher", "research_manager"
+        - Traders: "trader"
+        - Risk analysts: "risky_analyst", "neutral_analyst", "safe_analyst", "risk_judge"
+
+    Timeout: Dynamic based on number of agents (15s per agent, min 60s).
+    """
+    start_time = time.time()
+    request_id = getattr(request.state, "request_id", f"req-{int(time.time() * 1000)}")
+
+    try:
+        # Input validation
+        if not request_data.company_name or not request_data.company_name.strip():
+            raise ValueError("company_name cannot be empty")
+
+        if not request_data.trade_date:
+            raise ValueError("trade_date is required")
+
+        # Validate selective agents
+        valid_agents = {
+            "market", "information", "fundamentals",
+            "bull_researcher", "bear_researcher", "research_manager",
+            "trader",
+            "risky_analyst", "neutral_analyst", "safe_analyst", "risk_judge"
+        }
+
+        invalid_agents = [agent for agent in request_data.selective_agents if agent not in valid_agents]
+        if invalid_agents:
+            raise ValueError(f"Invalid agents: {invalid_agents}. Valid agents: {sorted(valid_agents)}")
+
+        logger.info(
+            f"Selective analysis requested",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "endpoint": "/analyze/selective",
+                    "company": request_data.company_name,
+                    "selective_agents": request_data.selective_agents,
+                    "include_debate": request_data.include_debate,
+                    "include_risk": request_data.include_risk
+                }
+            }
+        )
+
+        # Create selective graph with only the requested agents
+        # Filter to data-gathering agents only (market, information, fundamentals)
+        data_agents = [agent for agent in request_data.selective_agents
+                      if agent in ["market", "information", "fundamentals"]]
+
+        if not data_agents:
+            raise ValueError("At least one data-gathering agent (market, information, fundamentals) must be selected")
+
+        # Get graph (always uses dynamic graph construction)
+        graph = get_graph()
+
+        # Process conversation context if provided
+        context_messages = None
+        if request_data.conversation_context:
+            MAX_CONTEXT_MESSAGES = 20
+            context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
+
+            context_messages = [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp
+                }
+                for msg in context_list
+            ]
+
+        # Run selective analysis
+        final_state, decision, aggregated_context, synthesizer_output = await graph.propagate(
+            request_data.company_name.strip().upper(),
+            request_data.trade_date,
+            query=None,
+            context=context_messages
+        )
+
+        response_time = time.time() - start_time
+
+        # Clean state for response (remove empty fields and unused phases)
+        # Extract execution plan from aggregated context (it's stored as dict)
+        execution_plan_dict = aggregated_context.execution_plan if aggregated_context else None
+        execution_plan_obj = None
+        if execution_plan_dict:
+            from graph.planner.models import ExecutionPlan
+            try:
+                execution_plan_obj = ExecutionPlan(**execution_plan_dict)
+            except:
+                execution_plan_obj = None
+        
+        cleaned_state = clean_state_for_response(
+            final_state,
+            execution_plan=execution_plan_obj
+        )
+
+        response = AnalyzeResponse(
+            company=request_data.company_name,
+            date=request_data.trade_date,
+            decision=decision,
+            state=cleaned_state
+        )
+
+        logger.info(
+            f"Selective analysis completed",
+            extra={
+                "extra_fields": {
+                    "request_id": request_id,
+                    "company": request_data.company_name,
+                    "decision": decision,
+                    "response_time": response_time,
+                    "agents_used": len(request_data.selective_agents)
+                }
+            }
+        )
+
+        return response
+
+    except Exception as e:
+        logger.error(f"Selective analysis error: {e}", exc_info=True)
         raise handle_http_exception(e, status_code=500)
 
 

@@ -1,4 +1,4 @@
-from typing import Annotated, Sequence
+from typing import Annotated, Sequence, Dict, Any
 from datetime import date, timedelta, datetime
 from typing_extensions import TypedDict, Optional
 from langchain_openai import ChatOpenAI
@@ -52,6 +52,11 @@ class AgentState(MessagesState):
     trade_date: Annotated[str, "What date we are trading at"]
 
     sender: Annotated[str, "Agent that sent this message"]
+    
+    # Criticality tracking
+    agent_criticality_map: Annotated[Dict[str, str], "Mapping of agent_id to criticality (critical/non-critical)"] = {}
+    agent_execution_status: Annotated[Dict[str, str], "Mapping of agent_id to execution status"] = {}
+    agent_errors: Annotated[Dict[str, Dict[str, Any]], "Mapping of agent_id to error information"] = {}
 
     # research step
     market_report: Annotated[str, "Report from the Market Analyst"]

@@ -1,0 +1,26 @@
+{
+  "input_schema": {
+    "type": "object",
+    "required": ["risk_debate_state"],
+    "properties": {
+      "risk_debate_state": {"type": "object"},
+      "trader_investment_plan": {"type": "string"}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["agent_id", "status", "payload"],
+    "properties": {
+      "agent_id": {"type": "string", "const": "safe_debator"},
+      "status": {"type": "string", "enum": ["success", "failure", "partial"]},
+      "payload": {
+        "type": "object",
+        "properties": {
+          "safe_history": {"type": "string"},
+          "safe_argument": {"type": "string"}
+        }
+      }
+    }
+  }
+}
+

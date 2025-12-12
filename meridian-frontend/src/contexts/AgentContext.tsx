@@ -101,24 +101,21 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         };
       });
       
-      // Extract and store agent analysis data for PDF download
+      // Extract and store agent analysis data for PDF download.
+      // Always prefer the full state from analysis_complete; ignore summary-only events.
       if (event.data) {
         const data = event.data as any;
-        if (data.company && data.date && data.decision && data.state) {
+        const hasFullState = !!data.state;
+        if (hasFullState && data.company && data.date) {
           setAgentAnalysis({
             company: data.company,
             date: data.date,
-            decision: data.decision,
-            state: data.state || data,
+            decision: data.decision || null,
+            state: data.state,
           });
-        } else if (data) {
-          // Try to extract from the data object itself
-          setAgentAnalysis({
-            company: data.company || 'UNKNOWN',
-            date: data.date || new Date().toISOString().split('T')[0],
-            decision: data.decision || 'UNKNOWN',
-            state: data,
-          });
+        } else {
+          // If no full state, do not overwrite an existing full analysis with partial summaries.
+          setAgentAnalysis((prev) => prev || null);
         }
       }
       

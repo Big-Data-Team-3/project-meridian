@@ -25,6 +25,14 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
     }
   };
 
+  const handleCopyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+    } catch (err) {
+      console.error('Failed to copy message:', err);
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -74,6 +82,32 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
         >
           <span className="text-xs">{formatDate(message.timestamp)}</span>
           {!isUser && message.agentTrace && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleCopyMessage}
+                className={cn(
+                  'text-xs p-1.5 rounded',
+                  'bg-surface-hover hover:bg-surface-tertiary',
+                  'text-text-secondary hover:text-text-primary',
+                  'transition-colors',
+                  'flex items-center justify-center'
+                )}
+                title="Copy message"
+              >
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                  />
+                </svg>
+              </button>
             <button
               onClick={handleViewTrace}
               className={cn(
@@ -100,6 +134,7 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
               </svg>
               <span>Trace ({message.agentTrace.agentsCalled.length} agents)</span>
             </button>
+            </div>
           )}
         </div>
       </div>

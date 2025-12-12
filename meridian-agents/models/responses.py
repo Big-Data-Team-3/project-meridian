@@ -26,7 +26,7 @@ class AnalyzeResponse(BaseModel):
     """Response model for /analyze endpoint."""
     company: str = Field(..., description="Company name or ticker")
     date: str = Field(..., description="Trade date")
-    decision: str = Field(..., description="Trading decision (BUY, SELL, HOLD)")
+    decision: Optional[str] = Field(None, description="Trading decision (BUY, SELL, HOLD). None for news-only queries.")
     state: Dict[str, Any] = Field(..., description="Complete graph state with all agent outputs")
     
     class Config:

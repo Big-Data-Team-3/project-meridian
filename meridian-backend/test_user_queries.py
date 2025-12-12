@@ -647,6 +647,59 @@ class MeridianTestSuite:
                 )
             ]
         ))
+
+        # Category: investment_analysis - Broad investment queries that should trigger full workflow
+        test_threads.append(TestThread(
+            thread_id="",
+            queries=[
+                "Is Apple a good investment?",
+                "Should I invest in Tesla?",
+                "Analyze Microsoft stock for me",
+                "Evaluate NVIDIA as an investment",
+                "What do you think about Amazon stock?"
+            ],
+            description="Broad investment analysis - should trigger comprehensive workflow",
+            category="investment_analysis",
+            is_agentic_focus=True,
+            expected_intents=["comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade", "comprehensive_trade"],
+            expected_traces=[
+                ExpectedAgentTrace(
+                    intent="comprehensive_trade",
+                    workflow_type="full_workflow",
+                    agents_called=["Market Analyst", "Fundamentals Analyst", "Information Analyst", "Risk Manager"],
+                    agents_used=["market", "fundamentals", "information"],
+                    allow_extra_agents=True
+                ),
+                ExpectedAgentTrace(
+                    intent="comprehensive_trade",
+                    workflow_type="full_workflow",
+                    agents_called=["Market Analyst", "Fundamentals Analyst", "Information Analyst", "Risk Manager"],
+                    agents_used=["market", "fundamentals", "information"],
+                    allow_extra_agents=True
+                ),
+                ExpectedAgentTrace(
+                    intent="comprehensive_trade",
+                    workflow_type="full_workflow",
+                    agents_called=["Market Analyst", "Fundamentals Analyst", "Information Analyst", "Risk Manager"],
+                    agents_used=["market", "fundamentals", "information"],
+                    allow_extra_agents=True
+                ),
+                ExpectedAgentTrace(
+                    intent="comprehensive_trade",
+                    workflow_type="full_workflow",
+                    agents_called=["Market Analyst", "Fundamentals Analyst", "Information Analyst", "Risk Manager"],
+                    agents_used=["market", "fundamentals", "information"],
+                    allow_extra_agents=True
+                ),
+                ExpectedAgentTrace(
+                    intent="comprehensive_trade",
+                    workflow_type="full_workflow",
+                    agents_called=["Market Analyst", "Fundamentals Analyst", "Information Analyst", "Risk Manager"],
+                    agents_used=["market", "fundamentals", "information"],
+                    allow_extra_agents=True
+                )
+            ]
+        ))
         
         # Category: mixed_conversation - Multi-turn with different intents
         test_threads.append(TestThread(
@@ -1008,6 +1061,7 @@ Example usage:
             "fundamental_analysis",
             "market_overview",
             "comprehensive_analysis",
+            "investment_analysis",
             "mixed_conversation"
         ],
         default=None,
