@@ -96,7 +96,9 @@ export function useAgentStreaming(
         }
 
         // Use fetch with ReadableStream for SSE
-        const response = await fetch('http://localhost:8000/api/streaming/analyze', {
+        // Use environment variable for API URL (set at build time for production)
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const response = await fetch(`${apiUrl}/api/streaming/analyze`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -168,9 +170,9 @@ export function useAgentStreaming(
                         onError(new Error(event.message));
                       }
                     } else {
-                      console.log('✅ Streaming complete, calling onComplete callback');
-                      if (onComplete) {
-                        onComplete();
+                    console.log('✅ Streaming complete, calling onComplete callback');
+                    if (onComplete) {
+                      onComplete();
                       }
                     }
                   }
