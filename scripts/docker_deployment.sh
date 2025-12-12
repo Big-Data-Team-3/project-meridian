@@ -108,14 +108,29 @@ else
     exit 1
 fi
 
-# Step 3: Run containers
-echo -e "${YELLOW}Step 3: Starting containers...${NC}\n"
+# Step 3: Create Docker network for inter-container communication
+echo -e "${YELLOW}Step 3: Creating Docker network...${NC}\n"
+NETWORK_NAME="meridian-network"
+if docker network inspect ${NETWORK_NAME} >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ Docker network ${NETWORK_NAME} already exists${NC}\n"
+else
+    if docker network create ${NETWORK_NAME}; then
+        echo -e "${GREEN}✓ Docker network ${NETWORK_NAME} created${NC}\n"
+    else
+        echo -e "${RED}✗ Failed to create Docker network${NC}"
+        exit 1
+    fi
+fi
+
+# Step 4: Run containers
+echo -e "${YELLOW}Step 4: Starting containers...${NC}\n"
 
 # Run Agents Service (start first as backend depends on it)
 echo -e "${YELLOW}Starting ${AGENTS_CONTAINER} on port ${AGENTS_PORT}...${NC}"
 if docker run -d \
     -p ${AGENTS_PORT}:${AGENTS_PORT} \
     --name ${AGENTS_CONTAINER} \
+    --network ${NETWORK_NAME} \
     -e OPENAI_API_KEY=${OPENAI_API_KEY} \
     ${AGENTS_IMAGE}; then
     echo -e "${GREEN}✓ ${AGENTS_CONTAINER} started${NC}\n"
@@ -182,7 +197,8 @@ echo -e "${GREEN}✓ Using credentials: ${CREDENTIALS_ABS_PATH}${NC}"
 if docker run -d \
     -p ${BACKEND_PORT}:${BACKEND_PORT} \
     --name ${BACKEND_CONTAINER} \
-    -e AGENTS_SERVICE_URL=http://host.docker.internal:${AGENTS_PORT} \
+    --network ${NETWORK_NAME} \
+    -e AGENTS_SERVICE_URL=http://${AGENTS_CONTAINER}:${AGENTS_PORT} \
     -e INSTANCE_CONNECTION_NAME=${INSTANCE_CONNECTION_NAME} \
     -e DB_USER=${DB_USER} \
     -e DB_PASS=${DB_PASS} \
@@ -205,6 +221,7 @@ echo -e "${YELLOW}Starting ${FRONTEND_CONTAINER} on port ${FRONTEND_PORT}...${NC
 if docker run -d \
     -p ${FRONTEND_PORT}:${FRONTEND_PORT} \
     --name ${FRONTEND_CONTAINER} \
+    --network ${NETWORK_NAME} \
     ${FRONTEND_IMAGE}; then
     echo -e "${GREEN}✓ ${FRONTEND_CONTAINER} started${NC}\n"
 else
@@ -212,8 +229,8 @@ else
     exit 1
 fi
 
-# Step 4: Health checks
-echo -e "${YELLOW}Step 4: Running health checks...${NC}\n"
+# Step 5: Health checks
+echo -e "${YELLOW}Step 5: Running health checks...${NC}\n"
 
 # Wait a bit for services to be ready
 sleep 3
