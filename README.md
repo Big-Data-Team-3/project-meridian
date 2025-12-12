@@ -17,6 +17,45 @@ WE ATTEST THAT WE HAVEN'T USED ANY OTHER STUDENTS' WORK IN OUR ASSIGNMENT AND AB
 
 ---
 
+## Repository Operations (Constitution-Aligned)
+
+- **Services & Docs**
+  - Frontend (Next.js): `meridian-frontend/` with docs in `meridian-frontend/docs/`.
+  - Backend (FastAPI): `meridian-backend/` with docs in `meridian-backend/docs/`.
+  - Agents (FastAPI + LangGraph): `meridian-agents/` with docs in `meridian-agents/docs/` and eval guide in `docs/agents/evals/`.
+
+- **Setup**
+  - Python 3.11+: `pip install -r requirements.txt`
+  - Node 20+: `cd meridian-frontend && npm install`
+  - Env (examples): `OPENAI_API_KEY`, `AGENTS_SERVICE_URL`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `GOOGLE_APPLICATION_CREDENTIALS`.
+
+- **Run**
+  - Backend: `cd meridian-backend && uvicorn server:app --reload --port 8000`
+  - Agents: `cd meridian-agents && uvicorn server:app --reload --port 8001`
+  - Frontend: `cd meridian-frontend && npm run dev` (localhost:3000)
+
+- **Testing**
+  - Backend: `cd meridian-backend && pytest -v` (DB env vars required for DB tests)
+  - Agents: `cd meridian-agents && pytest -v`
+  - Frontend: `cd meridian-frontend && npm run test` (lint via `npm run lint`)
+  - Integration/e2e: see service `docs/tests.md` for scopes and env needs.
+
+- **Agent Evaluations**
+  - Local: `bash scripts/test_all_agents.sh AAPL 2025-12-12`
+  - CI: `.github/workflows/eval.yml` (`workflow_dispatch` with `ticker` and `date` inputs)
+  - Artifacts and datasets live under `docs/agents/evals/`.
+
+- **CI/CD**
+  - CI (`.github/workflows/ci.yml`): frontend lint/tests, backend pytest, agents pytest.
+  - Deploy (`.github/workflows/deploy.yml`): builds Docker images and deploys backend/agents to Cloud Run using `GCP_SA_KEY`, `GCP_PROJECT_ID`, `CLOUD_RUN_REGION`, service names.
+  - Eval (`.github/workflows/eval.yml`): manual/triggered agent eval sweep; depends on `OPENAI_API_KEY` and data provider creds.
+
+- **Disclosures**
+  - AI tooling: OpenAI GPT models used for agent inference; evaluations rely on same provider.
+  - Cloud: GCP (Cloud Run, Cloud SQL). Secrets must be stored in GitHub Secrets or GCP Secret Manager; no plaintext commits.
+
+---
+
 ## 1. Title
 **Multi-Agent AI Trading Intelligence System: A Cloud-Native Platform for Collaborative Investment Decision-Making Using Large Language Models**
 
