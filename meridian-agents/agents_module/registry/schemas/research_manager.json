@@ -1,0 +1,27 @@
+{
+  "input_schema": {
+    "type": "object",
+    "required": ["investment_debate_state"],
+    "properties": {
+      "investment_debate_state": {"type": "object"},
+      "market_report": {"type": "string"},
+      "fundamentals_report": {"type": "string"}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["agent_id", "status", "payload"],
+    "properties": {
+      "agent_id": {"type": "string", "const": "research_manager"},
+      "status": {"type": "string", "enum": ["success", "failure", "partial"]},
+      "payload": {
+        "type": "object",
+        "properties": {
+          "investment_plan": {"type": "string"},
+          "judge_decision": {"type": "string"}
+        }
+      }
+    }
+  }
+}
+

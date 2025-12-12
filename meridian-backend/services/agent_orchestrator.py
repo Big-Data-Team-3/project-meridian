@@ -323,7 +323,8 @@ class AgentOrchestrator:
         company_name: str,
         trade_date: str,
         workflow: AgentWorkflowConfig,
-        conversation_context: Optional[list] = None
+        conversation_context: Optional[list] = None,
+        query: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Prepare request payload for agent service.
@@ -333,6 +334,7 @@ class AgentOrchestrator:
             trade_date: Trade date in YYYY-MM-DD format
             workflow: AgentWorkflowConfig
             conversation_context: Optional conversation history
+            query: Optional user query for dynamic agent selection
             
         Returns:
             Request payload dictionary
@@ -341,6 +343,10 @@ class AgentOrchestrator:
             "company_name": company_name,
             "trade_date": trade_date
         }
+        
+        # Add query if provided (for dynamic agent selection)
+        if query:
+            payload["query"] = query
         
         if conversation_context:
             # Convert to format expected by agent service

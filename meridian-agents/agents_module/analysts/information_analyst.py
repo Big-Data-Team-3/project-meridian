@@ -39,8 +39,8 @@ def create_information_analyst(model: str = "gpt-4o-mini"):
         "   - Social media sentiment and public perception\n"
         "   - Key insights and implications for traders\n"
         "   - A Markdown table at the end organizing key points in an easy-to-read format\n\n"
-        "If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable, "
-        "prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
+        "**Important**: Focus on providing comprehensive information and analysis. Your role is to provide information and insights, "
+        "not trading recommendations or decisions."
     )
     
     # Create the agent
@@ -95,7 +95,8 @@ def create_information_analyst(model: str = "gpt-4o-mini"):
             f"   - Social media sentiment and public perception\n"
             f"   - Key insights and implications for traders and investors\n"
             f"   - A Markdown table organizing key points at the end\n"
-            f"Ensure the analysis is detailed, finegrained, and actionable for trading decisions."
+            f"Ensure the analysis is detailed, finegrained, and actionable for trading decisions. "
+            f"Focus on providing information and insights, not trading recommendations."
         )
         
         # Run the agent using Runner

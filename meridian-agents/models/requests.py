@@ -27,6 +27,11 @@ class AnalyzeRequest(BaseModel):
         pattern=r'^\d{4}-\d{2}-\d{2}$',
         description="Trade date (ISO format: YYYY-MM-DD)"
     )
+    query: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description="Optional user query for dynamic agent selection. If not provided, will be extracted from conversation_context or generated from company_name."
+    )
     conversation_context: Optional[List[ConversationMessage]] = Field(
         None,
         max_items=50,

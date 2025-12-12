@@ -48,19 +48,28 @@ class TradingAgentsGraph:
 
     def __init__(
         self,
+        selected_analysts=["market", "information", "fundamentals"],
         debug=False,
         config: Dict[str, Any] = None,
+        include_debate: bool = True,
+        include_risk: bool = True,
         planner: Optional[PlannerAgent] = None,
+        use_dynamic_graph: bool = True,
     ):
         """Initialize the trading agents graph and components.
 
         Args:
+            selected_analysts: List of analyst types to include (legacy - used only if use_dynamic_graph=False)
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
-            planner: Optional PlannerAgent instance. If None, creates default planner
+            include_debate: Whether to include research debate phase (legacy - used only if use_dynamic_graph=False)
+            include_risk: Whether to include risk analysis phase (legacy - used only if use_dynamic_graph=False)
+            planner: Optional PlannerAgent instance. If None and use_dynamic_graph=True, creates default planner
+            use_dynamic_graph: If True, use dynamic graph construction (requires planner). If False, use legacy static graph.
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
+        self.use_dynamic_graph = use_dynamic_graph
 
         # Update the interface's config
         set_config(self.config)
@@ -111,26 +120,43 @@ class TradingAgentsGraph:
         self.orchestrator = Orchestrator()
         self.synthesizer = FinalSynthesizer()
 
-        # Initialize planner (always required for dynamic graphs)
-        if planner is None:
-            # Create default planner
-            self.planner = PlannerAgent()
+        # Initialize planner if using dynamic graphs
+        if use_dynamic_graph:
+            if planner is None:
+                # Create default planner
+                self.planner = PlannerAgent()
+            else:
+                self.planner = planner
         else:
-            self.planner = planner
+            self.planner = None
 
         # State tracking
         self.curr_state = None
         self.ticker = None
         self.log_states_dict = {}  # date to full state dict
         
+        # Store selected analysts and workflow flags for streaming (legacy support)
+        self.selected_analysts = selected_analysts
+        self.include_debate = include_debate
+        self.include_risk = include_risk
+        
         # Streaming support
         self.event_emitter: Optional[EventEmitter] = None
         self.enable_streaming = False
 
-        # Graph is always constructed dynamically at runtime in propagate()
-        self.graph = None
-        self.current_execution_plan: Optional[ExecutionPlan] = None
-        self.selected_analysts = []  # Will be set from execution plan
+        # Graph is now constructed dynamically at runtime (not in __init__)
+        # Only create static graph if legacy mode is explicitly requested
+        if not use_dynamic_graph:
+            # Legacy mode: create static graph at initialization
+            self.graph = self.graph_setup.setup_graph_legacy(
+            selected_analysts=selected_analysts,
+            include_debate=include_debate,
+            include_risk=include_risk
+        )
+        else:
+            # Dynamic mode: graph will be constructed in propagate()
+            self.graph = None
+            self.current_execution_plan: Optional[ExecutionPlan] = None
     
     def enable_event_streaming(self, event_emitter: Optional[EventEmitter] = None):
         """Enable event streaming for agent execution."""
@@ -141,10 +167,9 @@ class TradingAgentsGraph:
         self.event_emitter = event_emitter or EventEmitter()
         
         # Estimate total steps based on selected analysts
-        # Note: selected_analysts will be set from execution plan during propagate()
-        # Use a conservative estimate for now
-        total_steps = max(len(self.selected_analysts) * 2, 10)  # Minimum 10 steps
-        # Add steps for debate and risk (conservative estimate)
+        total_steps = len(self.selected_analysts) * 2  # Rough estimate
+        # Add steps for debate and risk if they're part of the workflow
+        # (This would be determined by the workflow config, but we estimate conservatively)
         total_steps += 4  # Potential debate steps
         total_steps += 3  # Potential risk steps
         
@@ -160,141 +185,106 @@ class TradingAgentsGraph:
         """
         Run the trading agents graph for a company on a specific date (async).
         
-        The graph is always constructed dynamically based on the query and execution plan.
-        No static/legacy graphs are used.
-        
         Args:
             company_name: Company ticker/name
             trade_date: Trade date
-            query: User query for dynamic planning (required - will be generated from company_name if not provided)
+            query: Optional user query for dynamic planning (required if use_dynamic_graph=True)
             context: Optional conversation context for multi-turn conversations
             
         Returns:
-            Tuple of (final_state, decision, aggregated_context, synthesizer_output)
+            Tuple of (final_state, decision)
         """
         self.ticker = company_name
 
         # Dynamic graph construction: get execution plan from planner
-        # CRITICAL: Always clear graph at start of each query to prevent reuse
-        # This ensures each query gets a fresh graph based on its specific execution plan
-        self.graph = None
-        self.current_execution_plan = None
-        # CRITICAL: Clear selected_analysts to prevent using stale values from previous queries
-        self.selected_analysts = []
         execution_plan: Optional[ExecutionPlan] = None
+        has_debate = self.include_debate
+        has_risk = self.include_risk
         
-        if not query:
-            # Generate default query from company name
-            query = f"Analyze {company_name} for trading decision as of {trade_date}"
-            print(f"⚠️ WARNING: propagate() received query=None! Generated default: '{query}'")
-        else:
-            print(f"📥 propagate() received query: '{query[:200]}...'")
-        
-        # PRIMARY: Try LLM Planner first for intelligent reasoning-based planning
-        # This allows the LLM to analyze the query and generate sophisticated execution plans
-        execution_plan = None
-        has_debate = False
-        has_risk = False
-        
-        try:
-            print(f"🤖 Calling LLM Planner for query: '{query[:200]}...'")
-            execution_plan = self.planner.plan_workflow(query, context)
-            self.current_execution_plan = execution_plan
-            print(f"📋 Planner returned execution plan with {len(execution_plan.agents)} agents: {execution_plan.agents}")
-            if execution_plan.reasoning:
-                print(f"💭 Planner reasoning: {execution_plan.reasoning[:200]}...")
+        if self.use_dynamic_graph:
+            # CRITICAL: Always clear graph at start of each query to prevent reuse
+            # This ensures each query gets a fresh graph based on its specific execution plan
+            self.graph = None
+            self.current_execution_plan = None
             
-            # Construct graph dynamically based on execution plan
-            self.graph = self.graph_setup.setup_graph(execution_plan, validate=True)
+            if not query:
+                # Generate default query from company name
+                query = f"Analyze {company_name} for trading decision as of {trade_date}"
             
-            # Determine workflow flags from execution plan for state initialization
-            has_debate = any(agent_id in ["bull_researcher", "bear_researcher", "research_manager"] 
-                            for agent_id in execution_plan.agents)
-            has_risk = any(agent_id in ["risky_debator", "safe_debator", "neutral_debator", "risk_manager"]
-                          for agent_id in execution_plan.agents)
-            
-            # Update selected analysts for streaming
-            self.selected_analysts = [agent_id for agent_id in execution_plan.agents 
-                                     if agent_id in ["market_analyst", "fundamentals_analyst", "information_analyst"]]
-            print(f"✅ LLM Planner SUCCESS: Created execution plan with {len(execution_plan.agents)} agents")
-        
-        except Exception as e:
-            # FALLBACK: Planner failed - use pre-filter keyword matching
-            print(f"❌ Planner failed: {str(e)}. Falling back to pre-filter keyword matching.")
-            
-            # Pre-filter: Detect simple single-agent queries based on keywords
-            # Normalize query: strip whitespace and convert to lowercase for reliable matching
-            query_normalized = query.strip().lower() if query else ""
-            inferred_agent = None
-            
-            # News/sentiment keywords (highest priority - check first)
-            news_keywords = ["news", "sentiment", "social media", "announcements", "buzz", "trending", "latest news", "what's the news", "recent news", "what is the news"]
-            if any(keyword in query_normalized for keyword in news_keywords):
-                inferred_agent = "information"
-                matched_keyword = next((kw for kw in news_keywords if kw in query_normalized), "news")
-                print(f"📰 Pre-filter fallback: detected news/sentiment query (matched: '{matched_keyword}'), using ONLY information_analyst")
-            
-            # Technical keywords
-            elif any(keyword in query_normalized for keyword in ["technical", "chart", "indicator", "rsi", "macd", "trend", "moving average", "technical analysis"]):
-                inferred_agent = "market"
-                matched_keyword = next((kw for kw in ["technical", "chart", "indicator", "rsi", "macd", "trend", "moving average", "technical analysis"] if kw in query_normalized), "technical")
-                print(f"📈 Pre-filter fallback: detected technical query (matched: '{matched_keyword}'), using ONLY market_analyst")
-            
-            # Fundamental keywords
-            elif any(keyword in query_normalized for keyword in ["fundamental", "financial", "earnings", "balance sheet", "p/e ratio", "valuation", "financials"]):
-                inferred_agent = "fundamentals"
-                matched_keyword = next((kw for kw in ["fundamental", "financial", "earnings", "balance sheet", "p/e ratio", "valuation", "financials"] if kw in query_normalized), "fundamental")
-                print(f"💰 Pre-filter fallback: detected fundamental query (matched: '{matched_keyword}'), using ONLY fundamentals_analyst")
-            
-            # Company information keywords (catch-all for general company queries)
-            elif any(keyword in query_normalized for keyword in ["products", "business", "what does", "tell me about", "what is", "main products", "business model", "what are", "company"]):
-                inferred_agent = "information"
-                matched_keyword = next((kw for kw in ["products", "business", "what does", "tell me about", "what is", "main products", "business model", "what are", "company"] if kw in query_normalized), "company info")
-                print(f"ℹ️ Pre-filter fallback: detected company information query (matched: '{matched_keyword}'), using ONLY information_analyst")
-            
-            # Final fallback: if query mentions a company/ticker but no specific keywords matched, use information_analyst
-            elif company_name and company_name.lower() in query_normalized:
-                inferred_agent = "information"
-                print(f"ℹ️ Pre-filter fallback: detected company mention in query, defaulting to information_analyst")
-            
-            if inferred_agent:
-                # Create execution plan using pre-filter fallback
-                from .planner.models import ExecutionPlan
-                agent_id = f"{inferred_agent}_analyst"
-                execution_plan = ExecutionPlan(
-                    agents=[agent_id],
-                    execution_order=[agent_id],
-                    criticality_map={agent_id: "critical"},
-                    termination_conditions={},
-                    reasoning=f"Pre-filter fallback: detected {inferred_agent} query from keywords - using single agent only",
-                    estimated_duration=45.0,
-                    estimated_cost=0.05
-                )
+            try:
+                execution_plan = self.planner.plan_workflow(query, context)
                 self.current_execution_plan = execution_plan
+                
+                # Construct graph dynamically based on execution plan
                 self.graph = self.graph_setup.setup_graph(execution_plan, validate=True)
-                has_debate = False
-                has_risk = False
-                self.selected_analysts = [agent_id]
-                print(f"✅ Pre-filter fallback SUCCESS: Created execution plan with single agent: {agent_id}")
-            else:
-                # No keyword match - raise error
-                raise ValueError(
-                    f"Planner failed and pre-filter fallback could not infer agent from query keywords. "
-                    f"Query: '{query}'. Please ensure planner is working or provide a more specific query."
-                )
+                
+                # Determine workflow flags from execution plan for state initialization
+                has_debate = any(agent_id in ["bull_researcher", "bear_researcher", "research_manager"] 
+                                for agent_id in execution_plan.agents)
+                has_risk = any(agent_id in ["risky_debator", "safe_debator", "neutral_debator", "risk_manager"]
+                              for agent_id in execution_plan.agents)
+                
+                # Update selected analysts for streaming
+                self.selected_analysts = [agent_id for agent_id in execution_plan.agents 
+                                         if agent_id in ["market_analyst", "fundamentals_analyst", "information_analyst"]]
+                
+            except Exception as e:
+                print(f"⚠️  Planner failed: {str(e)}. Attempting intelligent fallback based on query.")
+                # Intelligent fallback: try to infer single agent from query keywords
+                execution_plan = None
+                
+                # Try to infer agent from query keywords
+                query_lower = query.lower() if query else ""
+                inferred_agent = None
+                
+                if any(keyword in query_lower for keyword in ["news", "sentiment", "social media", "announcements", "buzz", "trending"]):
+                    # News/sentiment query - use only information_analyst
+                    inferred_agent = "information"
+                    print(f"📰 Detected news/sentiment query, using only information_analyst")
+                elif any(keyword in query_lower for keyword in ["technical", "chart", "indicator", "rsi", "macd", "trend", "moving average"]):
+                    # Technical query - use only market_analyst
+                    inferred_agent = "market"
+                    print(f"📈 Detected technical query, using only market_analyst")
+                elif any(keyword in query_lower for keyword in ["fundamental", "financial", "earnings", "balance sheet", "p/e ratio", "valuation"]):
+                    # Fundamental query - use only fundamentals_analyst
+                    inferred_agent = "fundamentals"
+                    print(f"💰 Detected fundamental query, using only fundamentals_analyst")
+                
+                if inferred_agent:
+                    # Create minimal execution plan for single agent
+                    from .planner.models import ExecutionPlan
+                    execution_plan = ExecutionPlan(
+                        agents=[f"{inferred_agent}_analyst"],
+                        execution_order=[f"{inferred_agent}_analyst"],
+                        criticality_map={f"{inferred_agent}_analyst": "critical"},
+                        termination_conditions={},
+                        reasoning=f"Fallback plan: detected {inferred_agent} query from keywords",
+                        estimated_duration=45.0,
+                        estimated_cost=0.05
+                    )
+                    self.current_execution_plan = execution_plan
+                    self.graph = self.graph_setup.setup_graph(execution_plan, validate=True)
+                    has_debate = False
+                    has_risk = False
+                    self.selected_analysts = [f"{inferred_agent}_analyst"]
+                else:
+                    # No keyword match - fall back to legacy (but warn)
+                    print(f"⚠️  No keyword match found, falling back to legacy full graph")
+                    execution_plan = None
+                    self.graph = self.graph_setup.setup_graph_legacy(
+                        selected_analysts=self.selected_analysts,
+                        include_debate=self.include_debate,
+                        include_risk=self.include_risk
+                    )
+                    has_debate = self.include_debate
+                    has_risk = self.include_risk
+        else:
+            # Legacy mode: use existing static graph
+            execution_plan = None
 
         # Emit start event if streaming enabled
         if self.enable_streaming and self.event_emitter:
-            # CRITICAL: Always use execution_plan.agents if available, never fall back to selected_analysts
-            # This ensures we show the actual agents that will run, not a cached/stale list
-            if execution_plan:
-                agents_info = execution_plan.agents
-                print(f"📊 Emitting start event with {len(agents_info)} agents from execution_plan: {agents_info}")
-            else:
-                # This should never happen if code flow is correct, but log it for debugging
-                agents_info = self.selected_analysts if self.selected_analysts else []
-                print(f"⚠️ WARNING: execution_plan is None! Using selected_analysts fallback: {agents_info}")
-            
+            agents_info = execution_plan.agents if execution_plan else self.selected_analysts
             start_event = AgentStreamEvent(
                 event_type="analysis_start",
                 message=f"Starting analysis for {company_name}",
@@ -435,63 +425,9 @@ class TradingAgentsGraph:
                     )
                     self.event_emitter.emit(abort_event)
 
-        # Detect if this is a news-only query (before decision extraction)
-        is_news_only = False
-        if query:
-            query_lower = query.lower()
-            news_keywords = ["news", "sentiment", "summarize", "what's the news", "latest news", "recent news"]
-            trading_keywords = ["should i", "buy", "sell", "trade", "investment", "recommendation", "decision"]
-            has_news_keyword = any(kw in query_lower for kw in news_keywords)
-            has_trading_keyword = any(kw in query_lower for kw in trading_keywords)
-            
-            # Check execution plan - if only information_analyst, it's news-only
-            if execution_plan and len(execution_plan.agents) == 1 and "information_analyst" in execution_plan.agents:
-                is_news_only = True
-            elif has_news_keyword and not has_trading_keyword:
-                is_news_only = True
-
         # Emit completion event if streaming enabled
         if self.enable_streaming and self.event_emitter:
-            # Determine if this query requires a trading decision
-            # ONLY set decision when the actual static workflow (with debate/risk phases) is orchestrated
-            requires_decision_for_streaming = has_debate or has_risk
-            
-            # For news-only or simple analysis queries (no debate/risk phases), don't extract a decision
-            if is_news_only or not requires_decision_for_streaming:
-                streaming_decision = None
-                # Use appropriate report as response
-                if is_news_only:
-                    streaming_response = (
-                        final_state.get("information_report") or
-                        final_state.get("news_report") or
-                        final_state.get("sentiment_report") or
-                        "News summary not available"
-                    )
-                else:
-                    # Simple analysis query - use the relevant analyst report
-                    streaming_response = (
-                        final_state.get("market_report") or
-                        final_state.get("fundamentals_report") or
-                        final_state.get("information_report") or
-                        "Analysis report not available"
-                    )
-            else:
-                # Full workflow - extract decision from workflow outputs
-                streaming_decision = None
-                if has_risk and final_state.get("final_trade_decision"):
-                    streaming_decision = self.process_signal(final_state.get("final_trade_decision"))
-                elif has_debate and final_state.get("trader_investment_plan"):
-                    streaming_decision = self.process_signal(final_state.get("trader_investment_plan"))
-                elif final_state.get("final_trade_decision"):
-                    streaming_decision = self.process_signal(final_state.get("final_trade_decision"))
-                
-                # Use workflow outputs as response
-                streaming_response = (
-                    final_state.get("final_trade_decision") or
-                    final_state.get("trader_investment_plan") or
-                    final_state.get("investment_plan") or
-                    (streaming_decision if streaming_decision else "Workflow analysis complete")
-                )
+            decision = self.process_signal(final_state.get("final_trade_decision", "HOLD"))
             
             # Prepare serializable state (remove non-serializable objects)
             serializable_state = self._prepare_serializable_state(final_state)
@@ -501,11 +437,16 @@ class TradingAgentsGraph:
                 message=f"Analysis complete for {company_name}",
                 progress=100,
                 data={
-                    "decision": streaming_decision,
+                    "decision": decision,
                     "company": company_name,
                     "date": str(trade_date),
                     "state": serializable_state,  # Include full state for frontend breakdown
-                    "response": streaming_response
+                    "response": (
+                        final_state.get("final_trade_decision") or
+                        final_state.get("trader_investment_plan") or
+                        final_state.get("investment_plan") or
+                        decision
+                    )
                 }
             )
             self.event_emitter.emit(complete_event)
@@ -513,48 +454,41 @@ class TradingAgentsGraph:
         # Log state
         self._log_state(trade_date, final_state)
 
-        # Determine if this query requires a trading decision
-        # ONLY set decision when the actual static workflow (with debate/risk phases) is orchestrated
-        # Decision should be None for simple single-agent queries, regardless of query keywords
-        requires_decision = has_debate or has_risk
+        # Extract decision - for single-agent queries without trader/risk, use report content
+        # or default to "HOLD" if no explicit decision found
+        decision = "HOLD"
+        # Use execution plan to determine workflow structure if available
+        # (has_risk and has_debate are already set above)
         
-        # For news-only or simple analysis queries (no debate/risk phases), don't extract a trading decision
-        if is_news_only or not requires_decision:
-            decision = None  # No trading decision for simple analysis queries
-            if is_news_only:
-                print(f"📰 News-only query detected - skipping trading decision extraction")
-            else:
-                print(f"📊 Simple analysis query detected (no debate/risk workflow) - skipping trading decision extraction")
+        if has_risk and final_state.get("final_trade_decision"):
+            # Full workflow - use risk manager's decision
+            decision = self.process_signal(final_state.get("final_trade_decision"))
+        elif has_debate and final_state.get("trader_investment_plan"):
+            # Has trader but no risk - use trader's plan
+            decision = self.process_signal(final_state.get("trader_investment_plan"))
+        elif final_state.get("final_trade_decision"):
+            # Fallback to any decision found
+            decision = self.process_signal(final_state.get("final_trade_decision"))
         else:
-            # Trading decision query - ONLY when has_debate OR has_risk is True (full workflow orchestrated)
-            # Extract decision from the workflow outputs
-            decision = None  # Start with None, only set if we find an actual decision
-            
-            if has_risk and final_state.get("final_trade_decision"):
-                # Full workflow with risk - use risk manager's decision
-                decision = self.process_signal(final_state.get("final_trade_decision"))
-            elif has_debate and final_state.get("trader_investment_plan"):
-                # Has trader but no risk - use trader's plan
-                decision = self.process_signal(final_state.get("trader_investment_plan"))
-            elif final_state.get("final_trade_decision"):
-                # Fallback to any decision found
-                decision = self.process_signal(final_state.get("final_trade_decision"))
-            
-            # If no decision found in workflow outputs, keep it as None (don't default to HOLD)
-            if decision is None:
-                print(f"⚠️  Full workflow executed but no explicit decision found - returning None")
+            # Single-agent query - try to extract from market report or use default
+            market_report = final_state.get("market_report", "")
+            if "FINAL TRANSACTION PROPOSAL:" in market_report:
+                # Extract decision from market report if present
+                decision = self.process_signal(market_report)
+            else:
+                # No explicit decision - use "HOLD" as default
+                decision = "HOLD"
 
         # Synthesize final answer from aggregated context (if available)
-        # ONLY use synthesizer for full workflow queries (has_debate or has_risk)
         synthesizer_output = None
-        if requires_decision and aggregated_context and len(aggregated_context.agent_outputs) > 0:
+        if aggregated_context and len(aggregated_context.agent_outputs) > 0:
             try:
                 synthesizer_output = self.synthesizer.synthesize(
                     aggregated_context=aggregated_context,
                     original_query=query
                 )
-                # Use synthesizer recommendation if available (only for full workflow queries)
-                if synthesizer_output.recommendation and not is_news_only:
+                # Use synthesizer recommendation if available
+                if synthesizer_output.recommendation:
                     decision = synthesizer_output.recommendation
             except Exception as e:
                 print(f"⚠️  Synthesizer failed: {str(e)}. Using extracted decision.")
@@ -587,7 +521,7 @@ class TradingAgentsGraph:
         
         # Only include debate state if debate phase was actually used
         has_debate = (self.current_execution_plan and any(agent_id in ["bull_researcher", "bear_researcher", "research_manager"] 
-                                                          for agent_id in self.current_execution_plan.agents))
+                                                          for agent_id in self.current_execution_plan.agents)) or self.include_debate
         if has_debate and "investment_debate_state" in state:
             debate_state = state["investment_debate_state"]
             # Only include if there's actual content
@@ -605,7 +539,7 @@ class TradingAgentsGraph:
         
         # Only include risk state if risk phase was actually used
         has_risk = (self.current_execution_plan and any(agent_id in ["risky_debator", "safe_debator", "neutral_debator", "risk_manager"]
-                                                      for agent_id in self.current_execution_plan.agents))
+                                                      for agent_id in self.current_execution_plan.agents)) or self.include_risk
         if has_risk and "risk_debate_state" in state:
             risk_state = state["risk_debate_state"]
             # Only include if there's actual content

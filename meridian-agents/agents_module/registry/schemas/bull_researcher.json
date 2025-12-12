@@ -1,0 +1,29 @@
+{
+  "input_schema": {
+    "type": "object",
+    "required": ["investment_debate_state", "market_report", "fundamentals_report"],
+    "properties": {
+      "investment_debate_state": {"type": "object"},
+      "market_report": {"type": "string"},
+      "fundamentals_report": {"type": "string"},
+      "sentiment_report": {"type": "string"},
+      "news_report": {"type": "string"}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["agent_id", "status", "payload"],
+    "properties": {
+      "agent_id": {"type": "string", "const": "bull_researcher"},
+      "status": {"type": "string", "enum": ["success", "failure", "partial"]},
+      "payload": {
+        "type": "object",
+        "properties": {
+          "bull_history": {"type": "string"},
+          "bull_argument": {"type": "string"}
+        }
+      }
+    }
+  }
+}
+

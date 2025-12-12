@@ -1,0 +1,55 @@
+{
+  "input_schema": {
+    "type": "object",
+    "required": ["company_of_interest", "trade_date"],
+    "properties": {
+      "company_of_interest": {
+        "type": "string",
+        "description": "Stock ticker symbol (e.g., 'AAPL', 'MSFT')"
+      },
+      "trade_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Date for analysis in YYYY-MM-DD format"
+      },
+      "messages": {
+        "type": "array",
+        "description": "Optional conversation messages for context"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["agent_id", "status", "payload"],
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "const": "market_analyst"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["success", "failure", "partial"]
+      },
+      "payload": {
+        "type": "object",
+        "required": ["market_report"],
+        "properties": {
+          "market_report": {
+            "type": "string",
+            "description": "Detailed technical analysis report with indicators and insights"
+          },
+          "indicators_used": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "List of technical indicators used in analysis"
+          }
+        }
+      },
+      "error": {
+        "type": "object",
+        "description": "Error information if status is failure or partial"
+      }
+    }
+  }
+}
+

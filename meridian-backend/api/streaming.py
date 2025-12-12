@@ -327,7 +327,8 @@ async def stream_agent_analysis(
                     company_name=request.company_name or "UNKNOWN",
                     trade_date=request.trade_date,
                     workflow=workflow,
-                    conversation_context=request.conversation_context
+                    conversation_context=request.conversation_context,
+                    query=query_text  # Pass the extracted query for dynamic agent selection
                 )
                 
                 # Use real agent service streaming endpoint
