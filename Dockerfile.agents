@@ -26,11 +26,6 @@ COPY meridian-agents/models/ ./models/
 COPY meridian-agents/utils/ ./utils/
 COPY meridian-agents/default_config.py .
 
-# Copy client modules
-COPY gcp_client/ ./gcp_client/
-COPY sec-edgar-client/ ./sec-edgar-client/
-COPY yfinance_client/ ./yfinance_client/
-
 # Create necessary directories
 RUN mkdir -p dataflows/data_cache \
     && mkdir -p eval_results \
