@@ -350,16 +350,39 @@ class AgentOrchestrator:
         
         if conversation_context:
             # Convert to format expected by agent service
-            payload["conversation_context"] = [
-                {
-                    "id": msg.get("id", f"msg-{i}"),
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", ""),
-                    "timestamp": msg.get("timestamp", ""),
-                    "metadata": msg.get("metadata")
-                }
-                for i, msg in enumerate(conversation_context)
-            ]
+            # ConversationMessage requires: id, role, content, timestamp (all required)
+            import uuid
+            from datetime import datetime
+            
+            formatted_context = []
+            for i, msg in enumerate(conversation_context):
+                # Ensure all required fields are present
+                msg_id = msg.get("id")
+                if not msg_id or not isinstance(msg_id, str) or not msg_id.strip():
+                    msg_id = f"msg-{uuid.uuid4()}"
+                
+                role = msg.get("role", "user")
+                if role not in ["user", "assistant", "system"]:
+                    role = "user"  # Default to user if invalid
+                
+                content = msg.get("content", "")
+                if not content or not isinstance(content, str):
+                    content = str(content) if content else ""
+                
+                timestamp = msg.get("timestamp", "")
+                if not timestamp or not isinstance(timestamp, str):
+                    # Generate ISO timestamp if missing
+                    timestamp = datetime.utcnow().isoformat() + "Z"
+                
+                formatted_context.append({
+                    "id": msg_id,
+                    "role": role,
+                    "content": content,
+                    "timestamp": timestamp,
+                    "metadata": msg.get("metadata") if msg.get("metadata") else None
+                })
+            
+            payload["conversation_context"] = formatted_context
         
         # Add workflow-specific parameters
         if workflow.workflow_type == "multi_agent":

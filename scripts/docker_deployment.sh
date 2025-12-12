@@ -39,10 +39,21 @@ if [ -z "$GOOGLE_CLIENT_ID" ]; then
     echo -e "${YELLOW}   Google Sign-In will not work. Set it in .env file or export it.${NC}\n"
 fi
 
+# ========================================
+# SET DEVELOPMENT CONTEXT
+# ========================================
+export DEPLOYMENT_ENV="development"
+export DB_NAME="${DEV_DB_NAME:-meridian_dev}"
+
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}Deployment Environment: ${DEPLOYMENT_ENV}${NC}"
+echo -e "${GREEN}Database Name: ${DB_NAME}${NC}"
+echo -e "${GREEN}========================================${NC}\n"
+
 # Display database configuration status
-if [ -z "$INSTANCE_CONNECTION_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ] || [ -z "$DB_NAME" ]; then
+if [ -z "$INSTANCE_CONNECTION_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ]; then
     echo -e "${YELLOW}⚠️  Warning: Database environment variables not set${NC}"
-    echo -e "${YELLOW}   Required: INSTANCE_CONNECTION_NAME, DB_USER, DB_PASS, DB_NAME${NC}"
+    echo -e "${YELLOW}   Required: INSTANCE_CONNECTION_NAME, DB_USER, DB_PASS${NC}"
     echo -e "${YELLOW}   Set them in .env file or export them${NC}\n"
 else
     echo -e "${GREEN}✓ Database configuration found${NC}\n"
@@ -84,6 +95,56 @@ AGENTS_PORT=8001
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Meridian Project - Docker Deployment${NC}"
 echo -e "${GREEN}========================================${NC}\n"
+
+# ========================================
+# ENSURE CLOUD SQL AND DATABASE SETUP
+# ========================================
+if [ -n "$INSTANCE_CONNECTION_NAME" ] && [ -n "$PROJECT_ID" ]; then
+    echo -e "${YELLOW}Checking Cloud SQL and Database setup...${NC}\n"
+    
+    # Extract instance name from connection string
+    INSTANCE_NAME=$(echo ${INSTANCE_CONNECTION_NAME} | awk -F: '{print $NF}')
+    
+    # Check if gcloud is available
+    if command -v gcloud &> /dev/null; then
+        # Check if instance exists
+        if gcloud sql instances describe ${INSTANCE_NAME} \
+            --project=${PROJECT_ID} &>/dev/null 2>&1; then
+            echo -e "${GREEN}✓ Cloud SQL instance '${INSTANCE_NAME}' exists${NC}\n"
+            
+            # Check if development database exists
+            if gcloud sql databases describe ${DB_NAME} \
+                --instance=${INSTANCE_NAME} \
+                --project=${PROJECT_ID} &>/dev/null 2>&1; then
+                echo -e "${GREEN}✓ Database '${DB_NAME}' exists${NC}\n"
+            else
+                echo -e "${YELLOW}Database '${DB_NAME}' not found. Creating...${NC}"
+                gcloud sql databases create ${DB_NAME} \
+                    --instance=${INSTANCE_NAME} \
+                    --project=${PROJECT_ID}
+                echo -e "${GREEN}✓ Database '${DB_NAME}' created${NC}\n"
+            fi
+        else
+            echo -e "${YELLOW}Cloud SQL instance '${INSTANCE_NAME}' not found.${NC}"
+            echo -e "${YELLOW}Running setup_cloud_sql.sh to create it...${NC}\n"
+            
+            if [ -f scripts/setup_cloud_sql.sh ]; then
+                bash scripts/setup_cloud_sql.sh
+                echo -e "${GREEN}✓ Cloud SQL setup completed${NC}\n"
+            else
+                echo -e "${RED}✗ scripts/setup_cloud_sql.sh not found${NC}"
+                echo -e "${YELLOW}Please run setup_cloud_sql.sh manually before deployment${NC}\n"
+                exit 1
+            fi
+        fi
+    else
+        echo -e "${YELLOW}⚠️  gcloud CLI not found. Skipping Cloud SQL checks.${NC}"
+        echo -e "${YELLOW}   Make sure Cloud SQL instance and database exist.${NC}\n"
+    fi
+else
+    echo -e "${YELLOW}⚠️  PROJECT_ID or INSTANCE_CONNECTION_NAME not set.${NC}"
+    echo -e "${YELLOW}   Skipping Cloud SQL setup. Ensure database is configured.${NC}\n"
+fi
 
 # Function to stop and remove container
 stop_and_remove() {

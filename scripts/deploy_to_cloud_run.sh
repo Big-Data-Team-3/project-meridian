@@ -159,6 +159,16 @@ check_prerequisites() {
 setup_gcp_infrastructure() {
     print_header "Phase 1: GCP Infrastructure Setup"
     
+    # ========================================
+    # SET PRODUCTION CONTEXT
+    # ========================================
+    export DEPLOYMENT_ENV="production"
+    export DB_NAME="${PROD_DB_NAME:-meridian_prod}"
+    
+    print_info "Deployment Environment: ${DEPLOYMENT_ENV}"
+    print_info "Database Name: ${DB_NAME}"
+    echo ""
+    
     # Set gcloud project
     print_step "Setting GCP Project"
     gcloud config set project ${PROJECT_ID} --quiet
@@ -197,7 +207,7 @@ setup_gcp_infrastructure() {
     gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
     print_success "Docker authentication configured"
     
-    # Run GCP setup script for service accounts
+    # Run GCP setup script for service accounts (idempotent)
     print_step "Setting up Service Accounts"
     if [ -f scripts/setup_gcp.sh ]; then
         bash scripts/setup_gcp.sh
@@ -207,39 +217,54 @@ setup_gcp_infrastructure() {
         exit 1
     fi
     
-    # Verify existing Cloud SQL instance
-    print_step "Verifying Cloud SQL Instance"
+    # ========================================
+    # ENSURE CLOUD SQL AND DATABASE SETUP
+    # ========================================
+    print_step "Setting up Cloud SQL and Production Database"
     
     # Check if INSTANCE_CONNECTION_NAME is set in environment
     if [ -z "${INSTANCE_CONNECTION_NAME}" ]; then
         print_error "INSTANCE_CONNECTION_NAME is not set in .env file"
-        print_info "Please add your existing Cloud SQL instance connection name to .env"
+        print_info "Please add Cloud SQL instance connection name to .env"
         print_info "Format: INSTANCE_CONNECTION_NAME=project:region:instance-name"
+        print_info "Or just set the instance name and it will be created automatically"
         exit 1
     fi
     
     # Extract instance name from connection string (format: project:region:instance)
     INSTANCE_NAME=$(echo ${INSTANCE_CONNECTION_NAME} | cut -d ':' -f 3)
     
-    # Verify the instance exists
-    if ! gcloud sql instances describe ${INSTANCE_NAME} \
+    # Check if the instance exists
+    if gcloud sql instances describe ${INSTANCE_NAME} \
         --project=${PROJECT_ID} &>/dev/null; then
-        print_error "Cloud SQL instance '${INSTANCE_NAME}' not found"
-        print_info "Please verify INSTANCE_CONNECTION_NAME in .env file"
-        print_info "Current value: ${INSTANCE_CONNECTION_NAME}"
-        exit 1
+        print_success "Cloud SQL instance '${INSTANCE_NAME}' exists"
+    else
+        print_info "Cloud SQL instance '${INSTANCE_NAME}' not found"
+        print_info "Running setup_cloud_sql.sh to create it..."
+        
+        if [ -f scripts/setup_cloud_sql.sh ]; then
+            bash scripts/setup_cloud_sql.sh
+            print_success "Cloud SQL instance created"
+        else
+            print_error "scripts/setup_cloud_sql.sh not found"
+            print_info "Please create Cloud SQL instance manually or add setup_cloud_sql.sh"
+            exit 1
+        fi
     fi
     
-    print_success "Cloud SQL instance verified: ${INSTANCE_NAME}"
     print_success "Using connection name: ${INSTANCE_CONNECTION_NAME}"
     
-    # Verify database exists (optional check)
+    # Check if production database exists
     if gcloud sql databases describe ${DB_NAME} \
         --instance=${INSTANCE_NAME} \
         --project=${PROJECT_ID} &>/dev/null; then
         print_success "Database '${DB_NAME}' exists"
     else
-        print_info "Database '${DB_NAME}' not found - migrations will create it if needed"
+        print_info "Database '${DB_NAME}' not found. Creating..."
+        gcloud sql databases create ${DB_NAME} \
+            --instance=${INSTANCE_NAME} \
+            --project=${PROJECT_ID} --quiet
+        print_success "Database '${DB_NAME}' created"
     fi
 }
 
