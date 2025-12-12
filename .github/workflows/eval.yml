@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       ticker:
-        description: "Ticker to evaluate"
+        description: "Ticker to evaluate (optional - currently not used by eval system)"
         required: false
         default: "AAPL"
       date:
-        description: "Trade date (YYYY-MM-DD)"
+        description: "Trade date (YYYY-MM-DD) (optional - currently not used by eval system)"
         required: false
         default: "2025-12-12"
 
@@ -20,19 +20,23 @@ jobs:
     name: Run agent eval sweep
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements.txt
-      - run: pip install -r requirements.txt
-      - name: Run agent eval script
-        run: |
-          TICKER="${{ github.event.inputs.ticker || 'AAPL' }}"
-          DATE_INPUT="${{ github.event.inputs.date }}"
-          if [ -z "$DATE_INPUT" ]; then
-            DATE_INPUT="$(date +%Y-%m-%d)"
-          fi
-          bash scripts/test_all_agents.sh "$TICKER" "$DATE_INPUT"
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Run agent evaluation
+        working-directory: meridian-agents/tests/evals
+        run: python run_eval.py
+        env:
+          TICKER: ${{ github.event.inputs.ticker || 'AAPL' }}
+          DATE: ${{ github.event.inputs.date || '' }}
 
