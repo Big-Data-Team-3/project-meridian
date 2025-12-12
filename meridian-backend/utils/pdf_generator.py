@@ -673,15 +673,28 @@ def _sanitize_text(text: str) -> str:
     
     text = '\n'.join(cleaned_lines)
     
-    # Convert newlines to line breaks
-    text = text.replace('\n\n\n', '<br/><br/>')
-    text = text.replace('\n\n', '<br/><br/>')
-    text = text.replace('\n', '<br/>')
+    # STEP 1: First, normalize ALL existing br tags (from incoming HTML) to newlines
+    # This ensures we start with clean text
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<br\s+/>', '\n', text, flags=re.IGNORECASE)
     
-    # Clean up multiple line breaks
+    # STEP 2: Normalize newlines (collapse multiple newlines)
+    text = re.sub(r'\n{3,}', '\n\n', text)  # Max 2 consecutive newlines
+    
+    # STEP 3: Convert newlines to <br/> tags (ReportLab accepts <br/>)
+    # But we need to ensure they're properly formatted
+    text = text.replace('\n\n', '<br/><br/>')  # Double newline = paragraph break
+    text = text.replace('\n', '<br/>')  # Single newline = line break
+    
+    # STEP 4: Clean up excessive consecutive br tags
     text = re.sub(r'(<br/>){4,}', '<br/><br/>', text)
     
-    # Remove any stray HTML tags that might cause issues (except b, i, br)
+    # STEP 5: Remove any stray HTML tags (except b, i, br)
     text = re.sub(r'<(?!/?[bi]|br/?)([^>]+)>', '', text)
+    
+    # STEP 6: Final check - ensure br tags are properly formatted
+    # ReportLab's parser is strict - ensure no spaces or issues around br tags
+    # Remove any whitespace immediately after <br/> tags
+    text = re.sub(r'<br/>\s+', '<br/>', text)
     
     return text
