@@ -1,0 +1,42 @@
+{
+  "input_schema": {
+    "type": "object",
+    "required": ["company_of_interest", "trade_date"],
+    "properties": {
+      "company_of_interest": {
+        "type": "string",
+        "description": "Stock ticker symbol"
+      },
+      "trade_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Date for analysis"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["agent_id", "status", "payload"],
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "const": "fundamentals_analyst"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["success", "failure", "partial"]
+      },
+      "payload": {
+        "type": "object",
+        "required": ["fundamentals_report"],
+        "properties": {
+          "fundamentals_report": {
+            "type": "string",
+            "description": "Comprehensive fundamental analysis report including financial statements, ratios, and company profile"
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,163 @@
+'use client';
+
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import type { User, AuthState } from '@/types';
+import { apiClient } from '@/lib/api';
+import { storage, STORAGE_KEYS } from '@/lib/storage';
+
+interface AuthContextType extends AuthState {
+  authError: string | null;
+  clearAuthError: () => void;
+  loginWithGoogle: (credential: string) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Check for stored user and token on mount
+    const restoreAuth = () => {
+      try {
+        const storedUser = storage.get<User>(STORAGE_KEYS.USER);
+        const token = storage.get<string>(STORAGE_KEYS.TOKEN);
+        
+        if (storedUser && token) {
+          console.log('🔄 Restoring authentication from storage');
+          apiClient.setToken(token);
+          setUser(storedUser);
+          setIsAuthenticated(true);
+          console.log('✅ Authentication restored:', { email: storedUser.email, hasToken: !!token });
+        } else {
+          console.log('ℹ️ No stored authentication found');
+          setIsAuthenticated(false);
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('❌ Error restoring authentication:', error);
+        setIsAuthenticated(false);
+        setUser(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    restoreAuth();
+  }, []);
+
+  // Listen for auth-expired events dispatched by apiClient on 401
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleAuthExpired = (event: Event): void => {
+      const custom = event as CustomEvent<{ message?: string }>;
+      const message = custom.detail?.message || 'Session expired. Please sign in again.';
+      setAuthError(message);
+      setUser(null);
+      setIsAuthenticated(false);
+    };
+
+    window.addEventListener('auth-expired', handleAuthExpired as EventListener);
+    return () => window.removeEventListener('auth-expired', handleAuthExpired as EventListener);
+  }, []);
+
+  const logout = useCallback(async (): Promise<void> => {
+    setIsLoading(true);
+    try {
+      await apiClient.logout();
+    } catch (error) {
+      // Continue with logout even if API call fails
+      console.error('Logout error:', error);
+    } finally {
+      apiClient.setToken(null);
+      storage.clear();
+      setUser(null);
+      setIsAuthenticated(false);
+      setAuthError(null);
+      setIsLoading(false);
+    }
+  }, []);
+
+  const loginWithGoogle = useCallback(async (credential: string): Promise<void> => {
+    console.log('🔵 Step 5: AuthContext - loginWithGoogle called');
+    setIsLoading(true);
+    try {
+      const response = await apiClient.loginWithGoogle(credential);
+      console.log('🔵 Step 6: AuthContext - Received API response');
+      
+      if (response.error || !response.data) {
+        console.error('❌ AuthContext Error:', {
+          error: response.error,
+          hasData: !!response.data,
+          status: response.status,
+        });
+        throw new Error(response.error || 'Google login failed');
+      }
+      
+      const { user, token } = response.data;
+      console.log('🔵 Step 7: AuthContext - Extracting user and token');
+      console.log('   User:', { id: user?.id, email: user?.email, name: user?.name });
+      console.log('   Token length:', token?.length || 0);
+      
+      apiClient.setToken(token);
+      storage.set(STORAGE_KEYS.USER, user);
+      storage.set(STORAGE_KEYS.TOKEN, token);
+      setUser(user);
+      setIsAuthenticated(true);
+      setAuthError(null);
+      
+      console.log('✅ Step 8: AuthContext - Authentication complete');
+      console.log('   User stored in state and localStorage');
+    } catch (error) {
+      console.error('❌ AuthContext - Error in loginWithGoogle:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const refreshUser = useCallback(async (): Promise<void> => {
+    // Placeholder for future user refresh logic
+    // For now, just re-read from storage
+    const storedUser = storage.get<User>(STORAGE_KEYS.USER);
+    if (storedUser) {
+      setUser(storedUser);
+    }
+  }, []);
+
+  const clearAuthError = useCallback(() => {
+    setAuthError(null);
+  }, []);
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated,
+        isLoading,
+        authError,
+        clearAuthError,
+        loginWithGoogle,
+        logout,
+        refreshUser,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth(): AuthContextType {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
+
