@@ -60,3 +60,4 @@ instructor
 pg8000
 cloud-sql-python-connector[pg8000]    
 psycopg[binary]
+reportlab>=4.0.0

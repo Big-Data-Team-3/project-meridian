@@ -39,6 +39,18 @@ export function useChat(conversationId: string | null) {
           };
         }
         
+        // Extract agent analysis from metadata if present
+        let agentAnalysis: Message['agentAnalysis'] = undefined;
+        if (msg.metadata?.agent_analysis) {
+          const analysisData = msg.metadata.agent_analysis;
+          agentAnalysis = {
+            company: analysisData.company || '',
+            date: analysisData.date || '',
+            decision: analysisData.decision || '',
+            state: analysisData.state || analysisData, // Handle both wrapped and unwrapped formats
+          };
+        }
+        
         return {
           id: msg.message_id,
           role: msg.role as Message['role'],
@@ -46,6 +58,7 @@ export function useChat(conversationId: string | null) {
           timestamp: new Date(msg.timestamp),
           conversationId: msg.thread_id,
           agentTrace,
+          agentAnalysis,
         };
       });
       return { messages, conversationId: response.data.thread_id };
@@ -118,6 +131,11 @@ export function useChat(conversationId: string | null) {
     },
   });
 
+  const clearOptimisticMessages = useCallback(() => {
+    setOptimisticMessages([]);
+    setIsStreaming(false);
+  }, []);
+
   const sendMessage = useCallback(
     async (message: string): Promise<SendMessageResponse> => {
       return new Promise((resolve, reject) => {
@@ -156,6 +174,7 @@ export function useChat(conversationId: string | null) {
     isSending: sendMessageMutation.isPending,
     isStreaming,
     refetchMessages,
+    clearOptimisticMessages,
   };
 }
 

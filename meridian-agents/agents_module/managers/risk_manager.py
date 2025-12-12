@@ -97,6 +97,7 @@ Past reflections on mistakes:
             return {
                 "risk_debate_state": new_risk_debate_state,
                 "final_trade_decision": response_content,
+                "sender": "Risk Manager",
             }
         except Exception as e:
             error_msg = f"Error running risk manager: {str(e)}"
@@ -119,6 +120,7 @@ Past reflections on mistakes:
             return {
                 "risk_debate_state": new_risk_debate_state,
                 "final_trade_decision": error_msg,
+                "sender": "Risk Manager",
             }
 
     return risk_manager_node

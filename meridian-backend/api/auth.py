@@ -380,8 +380,35 @@ async def login_with_google(
                     "is_verified": updated_row[6]
                 }
             else: # if user not found, create new user
+                new_user_id = uuid.uuid4()
+                create_user_query = text("""
+                    INSERT INTO meridian.users 
+                        (user_id, email, name, gcp_user_id, gcp_email, gcp_provider, 
+                         is_active, is_verified, created_at, updated_at, last_login_at)
+                    VALUES 
+                        (:user_id, :email, :name, :gcp_user_id, :gcp_email, :gcp_provider,
+                         :is_active, :is_verified, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    RETURNING user_id, email, name, gcp_user_id, gcp_provider, is_active, is_verified
+                """)
+                
+                result = conn.execute(create_user_query, {
+                    "user_id": str(new_user_id),
+                    "email": email,
+                    "name": name,
+                    "gcp_user_id": gcp_user_id,
+                    "gcp_email": email,
+                    "gcp_provider": "google",
+                    "is_active": True,
+                    "is_verified": email_verified
+                })
                 new_row = result.fetchone()
                 conn.commit()
+                
+                if not new_row:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to create new user: INSERT did not return a row"
+                    )
                 
                 user = {
                     "id": str(new_row[0]),

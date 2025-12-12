@@ -89,7 +89,10 @@ If there are no responses from the other viewpoints, do not hallucinate and just
                 "count": risk_debate_state["count"] + 1,
             }
 
-            return {"risk_debate_state": new_risk_debate_state}
+            return {
+                "risk_debate_state": new_risk_debate_state,
+                "sender": "Neutral Risk Analyst"
+            }
         except Exception as e:
             error_msg = f"Error running neutral debator: {str(e)}"
             print(f"❌ {error_msg}")
@@ -110,6 +113,9 @@ If there are no responses from the other viewpoints, do not hallucinate and just
                 "current_neutral_response": argument,
                 "count": risk_debate_state["count"] + 1,
             }
-            return {"risk_debate_state": new_risk_debate_state}
+            return {
+                "risk_debate_state": new_risk_debate_state,
+                "sender": "Neutral Risk Analyst"
+            }
 
     return neutral_node

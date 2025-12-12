@@ -20,7 +20,7 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
   
   const handleViewTrace = () => {
     if (message.agentTrace) {
-      setTraceFromMessage(message.agentTrace);
+      setTraceFromMessage(message.agentTrace, message.agentAnalysis);
       openTrace();
     }
   };
@@ -34,11 +34,11 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
     >
       <div
         className={cn(
-          'max-w-[85%] rounded-2xl px-4 py-3',
+          'rounded-2xl px-4 py-3',
           'shadow-sm',
           isUser
-            ? 'bg-accent text-white rounded-br-md'
-            : 'bg-surface text-text-primary rounded-bl-md border border-border'
+            ? 'max-w-[85%] bg-accent text-white rounded-br-md'
+            : 'w-full max-w-full bg-surface text-text-primary rounded-bl-md border border-border'
         )}
       >
         <div className="prose prose-sm max-w-none dark:prose-invert m-0">

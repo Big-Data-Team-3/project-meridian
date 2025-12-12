@@ -7,6 +7,8 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 import httpx
+from fastapi.responses import Response
+from utils.pdf_generator import generate_analysis_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,88 @@ async def agents_analyze(request: AgentAnalyzeRequest):
         raise HTTPException(
             status_code=503,
             detail=f"Agents service unavailable: {str(e)}"
+        )
+
+
+@router.post("/pdf")
+async def generate_pdf_from_results(request: AgentAnalyzeResponse):
+    """
+    Generate a PDF from existing analysis results.
+    This endpoint accepts the analysis results that are displayed on screen
+    and generates a PDF report without re-running the analysis.
+    
+    Use this when the user clicks the PDF download button on the frontend.
+    """
+    try:
+        # Generate PDF from the provided results
+        pdf_buffer = generate_analysis_pdf(
+            company=request.company,
+            date=request.date,
+            decision=request.decision,
+            state=request.state
+        )
+        
+        # Return PDF as download
+        filename = f"Meridian_{request.company}_{request.date}.pdf"
+        return Response(
+            content=pdf_buffer.read(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except ImportError as e:
+        if "reportlab" in str(e):
+            raise HTTPException(
+                status_code=503,
+                detail="PDF generation is not available. Please install reportlab: pip install reportlab"
+            )
+        raise
+    except Exception as e:
+        logger.error(f"PDF generation error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate PDF: {str(e)}"
+        )
+
+
+@router.get("/pdf/{filename}")
+async def download_pdf(filename: str):
+    """
+    Download a previously generated PDF report.
+    
+    Args:
+        filename: Name of the PDF file to download (e.g., Meridian_MSFT_2025-01-15.pdf)
+    
+    Returns:
+        PDF file as a downloadable response
+    """
+    try:
+        import os
+        pdf_dir = "/app/data/pdfs"
+        pdf_path = os.path.join(pdf_dir, filename)
+        
+        if not os.path.exists(pdf_path):
+            raise HTTPException(status_code=404, detail="PDF not found")
+        
+        # Read PDF file
+        with open(pdf_path, 'rb') as f:
+            pdf_content = f.read()
+        
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"PDF download error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to download PDF: {str(e)}"
         )
 
 

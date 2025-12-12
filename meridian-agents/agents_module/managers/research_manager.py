@@ -87,6 +87,7 @@ Debate History:
             return {
                 "investment_debate_state": new_investment_debate_state,
                 "investment_plan": response_content,
+                "sender": "Research Manager",
             }
         except Exception as e:
             error_msg = f"Error running research manager: {str(e)}"
@@ -103,8 +104,9 @@ Debate History:
                 "count": investment_debate_state["count"],
             }
             return {
-                "investment_debate_state": new_investment_debate_state,
-                "investment_plan": error_msg,
-            }
+    "investment_debate_state": new_investment_debate_state,
+    "investment_plan": error_msg,
+    "sender": "Research Manager",  # ← MISSING!
+}
 
     return research_manager_node

@@ -91,7 +91,10 @@ If there are no responses from the other viewpoints, do not hallucinate and just
                 "count": risk_debate_state["count"] + 1,
             }
 
-            return {"risk_debate_state": new_risk_debate_state}
+            return {
+                "risk_debate_state": new_risk_debate_state,
+                "sender": "Conservative Risk Analyst"
+            }
         except Exception as e:
             error_msg = f"Error running safe debator: {str(e)}"
             print(f"❌ {error_msg}")
@@ -114,6 +117,9 @@ If there are no responses from the other viewpoints, do not hallucinate and just
                 ),
                 "count": risk_debate_state["count"] + 1,
             }
-            return {"risk_debate_state": new_risk_debate_state}
+            return {
+                "risk_debate_state": new_risk_debate_state,
+                "sender": "Conservative Risk Analyst"
+            }
 
     return safe_node

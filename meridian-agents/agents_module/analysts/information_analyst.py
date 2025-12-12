@@ -129,6 +129,7 @@ def create_information_analyst(model: str = "gpt-4o-mini"):
                 # For backward compatibility with existing code that expects news_report or sentiment_report
                 "news_report": report,
                 "sentiment_report": report,
+                "sender": "Information Analyst",
             }
         except Exception as e:
             error_msg = f"Error running information analyst: {str(e)}"
@@ -142,12 +143,13 @@ def create_information_analyst(model: str = "gpt-4o-mini"):
             updated_messages.append(AIMessage(content=error_msg))
             
             return {
-                "messages": updated_messages,
-                "information_report": error_msg,
-                # For backward compatibility
-                "news_report": error_msg,
-                "sentiment_report": error_msg,
-            }
+    "messages": updated_messages,
+    "information_report": error_msg,
+    # For backward compatibility
+    "news_report": error_msg,
+    "sentiment_report": error_msg,
+    "sender": "Information Analyst",
+}
 
     return information_analyst_node
 

@@ -91,7 +91,10 @@ Use this information to deliver a compelling bear argument, refute the bull's cl
                 "count": investment_debate_state["count"] + 1,
             }
 
-            return {"investment_debate_state": new_investment_debate_state}
+            return {
+                "investment_debate_state": new_investment_debate_state,
+                "sender": "Bear Researcher"
+            }
         except Exception as e:
             error_msg = f"Error running bear researcher: {str(e)}"
             print(f"❌ {error_msg}")
@@ -106,6 +109,9 @@ Use this information to deliver a compelling bear argument, refute the bull's cl
                 "current_response": argument,
                 "count": investment_debate_state["count"] + 1,
             }
-            return {"investment_debate_state": new_investment_debate_state}
+            return {
+                "investment_debate_state": new_investment_debate_state,
+                "sender": "Bear Researcher"
+            }
 
     return bear_node
