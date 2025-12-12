@@ -142,7 +142,7 @@ class ApiClient {
   }
 
   async healthCheck(): Promise<ApiResponse<HealthCheckResponse>> {
-    return this.request<HealthCheckResponse>('/api/health');
+    return this.request<HealthCheckResponse>('/api/health', { method: 'GET' });
   }
 
   async logout(): Promise<ApiResponse<{ message: string }>> {

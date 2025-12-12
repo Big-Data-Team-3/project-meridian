@@ -2,9 +2,12 @@
 PDF generation utility for Meridian Agents analysis reports.
 Generates PDF from existing analysis results displayed on screen.
 """
+import logging
 from io import BytesIO
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 try:
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -17,7 +20,7 @@ except ImportError:
     REPORTLAB_AVAILABLE = False
 
 
-def generate_analysis_pdf(company: str, date: str, decision: str, state: Dict[str, Any]) -> BytesIO:
+def generate_analysis_pdf(company: str, date: str, decision: str, state: Dict[str, Any], agent_trace: Optional[Dict[str, Any]] = None) -> BytesIO:
     """
     Generate a PDF report from analysis results.
     
@@ -26,6 +29,7 @@ def generate_analysis_pdf(company: str, date: str, decision: str, state: Dict[st
         date: Trade date
         decision: Trading decision (BUY, SELL, HOLD)
         state: Complete graph state with all agent outputs
+        agent_trace: Optional agent trace with events and agent states
         
     Returns:
         BytesIO object containing the PDF
@@ -35,6 +39,59 @@ def generate_analysis_pdf(company: str, date: str, decision: str, state: Dict[st
             "reportlab is required for PDF generation. "
             "Install it with: pip install reportlab"
         )
+    
+    # Log input parameters for debugging
+    logger.info(f"PDF Generation Started - Company: {company}, Date: {date}, Decision: {decision}")
+    logger.info(f"State type: {type(state)}, State keys: {list(state.keys()) if isinstance(state, dict) else 'N/A'}")
+    logger.info(f"Agent trace provided: {agent_trace is not None}")
+    if agent_trace:
+        logger.info(f"Agent trace keys: {list(agent_trace.keys()) if isinstance(agent_trace, dict) else 'N/A'}")
+        logger.info(f"Agents called: {agent_trace.get('agents_called', [])}")
+        logger.info(f"Trace events count: {len(agent_trace.get('events', []))}")
+    
+    # Normalize state structure - handle cases where reports are nested in a 'reports' key
+    if isinstance(state, dict) and 'reports' in state and isinstance(state.get('reports'), dict):
+        logger.info("Found 'reports' key in state, extracting nested reports...")
+        reports = state['reports']
+        logger.info(f"Reports keys: {list(reports.keys())}")
+        # Map nested reports to expected flat structure
+        # Handle various possible key names
+        if 'market' in reports:
+            state['market_report'] = reports['market']
+        elif 'market_report' in reports:
+            state['market_report'] = reports['market_report']
+            
+        if 'fundamentals' in reports:
+            state['fundamentals_report'] = reports['fundamentals']
+        elif 'fundamentals_report' in reports:
+            state['fundamentals_report'] = reports['fundamentals_report']
+            
+        if 'news' in reports:
+            state['news_report'] = reports['news']
+        elif 'news_report' in reports:
+            state['news_report'] = reports['news_report']
+            
+        if 'sentiment' in reports:
+            state['sentiment_report'] = reports['sentiment']
+        elif 'sentiment_report' in reports:
+            state['sentiment_report'] = reports['sentiment_report']
+            
+        if 'information' in reports:
+            state['information_report'] = reports['information']
+        elif 'information_report' in reports:
+            state['information_report'] = reports['information_report']
+            
+        logger.info(f"Extracted reports from nested structure. New state keys: {list(state.keys())}")
+    
+    # Also check if state itself is nested (state.state pattern)
+    if isinstance(state, dict) and 'state' in state and isinstance(state.get('state'), dict):
+        logger.info("Found nested 'state' key, using inner state...")
+        inner_state = state['state']
+        # Merge inner state into outer state (inner state takes precedence)
+        for key, value in inner_state.items():
+            if key not in ['date', 'company', 'decision', 'response']:  # Don't overwrite top-level metadata
+                state[key] = value
+        logger.info(f"Merged nested state. Final state keys: {list(state.keys())}")
     
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
@@ -182,107 +239,302 @@ def generate_analysis_pdf(company: str, date: str, decision: str, state: Dict[st
     story.append(Spacer(1, 0.15*inch))
     
     # Section 1: Market Analysis
-    if state.get('market_report'):
+    market_report = state.get('market_report')
+    if market_report:
+        logger.info(f"✓ Including market_report (length: {len(str(market_report))} chars)")
         story.append(Paragraph("📊 MARKET ANALYSIS", section_heading_style))
-        market_text = _sanitize_text(state['market_report'])
+        market_text = _sanitize_text(market_report)
         story.append(Paragraph(market_text, body_style))
         story.append(Spacer(1, 0.2*inch))
+    else:
+        logger.warning("✗ market_report not found in state")
     
     # Section 2: Fundamentals Analysis
-    if state.get('fundamentals_report'):
+    fundamentals_report = state.get('fundamentals_report')
+    if fundamentals_report:
+        logger.info(f"✓ Including fundamentals_report (length: {len(str(fundamentals_report))} chars)")
         story.append(Paragraph("💼 FUNDAMENTALS ANALYSIS", section_heading_style))
-        fundamentals_text = _sanitize_text(state['fundamentals_report'])
+        fundamentals_text = _sanitize_text(fundamentals_report)
         story.append(Paragraph(fundamentals_text, body_style))
         story.append(Spacer(1, 0.2*inch))
+    else:
+        logger.warning("✗ fundamentals_report not found in state")
     
     # Section 3: Information & Sentiment Analysis
-    if state.get('information_report'):
+    information_report = state.get('information_report')
+    sentiment_report = state.get('sentiment_report')
+    news_report = state.get('news_report')
+    
+    if information_report:
+        logger.info(f"✓ Including information_report (length: {len(str(information_report))} chars)")
         story.append(Paragraph("💬 SENTIMENT & INFORMATION ANALYSIS", section_heading_style))
-        info_text = _sanitize_text(state['information_report'])
+        info_text = _sanitize_text(information_report)
         story.append(Paragraph(info_text, body_style))
         story.append(Spacer(1, 0.2*inch))
-    elif state.get('sentiment_report'):
+    elif sentiment_report:
+        logger.info(f"✓ Including sentiment_report (length: {len(str(sentiment_report))} chars)")
         story.append(Paragraph("💬 SENTIMENT ANALYSIS", section_heading_style))
-        sentiment_text = _sanitize_text(state['sentiment_report'])
+        sentiment_text = _sanitize_text(sentiment_report)
         story.append(Paragraph(sentiment_text, body_style))
         story.append(Spacer(1, 0.2*inch))
+    else:
+        logger.warning("✗ Neither information_report nor sentiment_report found in state")
     
-    if state.get('news_report') and not state.get('information_report'):
+    if news_report and not information_report:
+        logger.info(f"✓ Including news_report (length: {len(str(news_report))} chars)")
         story.append(Paragraph("📰 NEWS ANALYSIS", section_heading_style))
-        news_text = _sanitize_text(state['news_report'])
+        news_text = _sanitize_text(news_report)
         story.append(Paragraph(news_text, body_style))
         story.append(Spacer(1, 0.2*inch))
+    elif news_report:
+        logger.info(f"ℹ news_report found but skipped (information_report already included)")
+    else:
+        logger.warning("✗ news_report not found in state")
     
     # Section 4: Investment Debate
-    if state.get('investment_debate_state'):
-        debate_state = state['investment_debate_state']
+    investment_debate_state = state.get('investment_debate_state')
+    if investment_debate_state:
+        logger.info(f"✓ Including investment_debate_state (type: {type(investment_debate_state)})")
+        if isinstance(investment_debate_state, dict):
+            logger.info(f"  - investment_debate_state keys: {list(investment_debate_state.keys())}")
+        debate_state = investment_debate_state
         story.append(Paragraph("⚖️ INVESTMENT STRATEGY DEBATE", section_heading_style))
         
-        if debate_state.get('bull_history'):
+        bull_history = debate_state.get('bull_history') if isinstance(debate_state, dict) else None
+        if bull_history:
+            logger.info(f"  ✓ Including bull_history (length: {len(str(bull_history))} chars)")
             story.append(Paragraph("🐂 Bull Case", subheading_style))
-            bull_text = _sanitize_text(debate_state['bull_history'])
+            bull_text = _sanitize_text(bull_history)
             story.append(Paragraph(bull_text, body_style))
             story.append(Spacer(1, 0.15*inch))
+        else:
+            logger.warning("  ✗ bull_history not found in investment_debate_state")
         
-        if debate_state.get('bear_history'):
+        bear_history = debate_state.get('bear_history') if isinstance(debate_state, dict) else None
+        if bear_history:
+            logger.info(f"  ✓ Including bear_history (length: {len(str(bear_history))} chars)")
             story.append(Paragraph("🐻 Bear Case", subheading_style))
-            bear_text = _sanitize_text(debate_state['bear_history'])
+            bear_text = _sanitize_text(bear_history)
             story.append(Paragraph(bear_text, body_style))
             story.append(Spacer(1, 0.15*inch))
+        else:
+            logger.warning("  ✗ bear_history not found in investment_debate_state")
         
-        if debate_state.get('judge_decision'):
+        judge_decision = debate_state.get('judge_decision') if isinstance(debate_state, dict) else None
+        if judge_decision:
+            logger.info(f"  ✓ Including judge_decision (length: {len(str(judge_decision))} chars)")
             story.append(Paragraph("👨‍⚖️ Research Manager Decision", subheading_style))
-            judge_text = _sanitize_text(debate_state['judge_decision'])
+            judge_text = _sanitize_text(judge_decision)
             story.append(Paragraph(judge_text, body_style))
             story.append(Spacer(1, 0.2*inch))
+        else:
+            logger.warning("  ✗ judge_decision not found in investment_debate_state")
+    else:
+        logger.warning("✗ investment_debate_state not found in state")
     
     # Section 5: Risk Analysis
-    if state.get('risk_debate_state'):
-        risk_state = state['risk_debate_state']
+    risk_debate_state = state.get('risk_debate_state')
+    if risk_debate_state:
+        logger.info(f"✓ Including risk_debate_state (type: {type(risk_debate_state)})")
+        if isinstance(risk_debate_state, dict):
+            logger.info(f"  - risk_debate_state keys: {list(risk_debate_state.keys())}")
+        risk_state = risk_debate_state
         story.append(Paragraph("⚠️ RISK ANALYSIS", section_heading_style))
         
-        if risk_state.get('risky_history'):
+        risky_history = risk_state.get('risky_history') if isinstance(risk_state, dict) else None
+        if risky_history:
+            logger.info(f"  ✓ Including risky_history (length: {len(str(risky_history))} chars)")
             story.append(Paragraph("🔥 Aggressive Risk Perspective", subheading_style))
-            risky_text = _sanitize_text(risk_state['risky_history'])
+            risky_text = _sanitize_text(risky_history)
             story.append(Paragraph(risky_text, body_style))
             story.append(Spacer(1, 0.15*inch))
+        else:
+            logger.warning("  ✗ risky_history not found in risk_debate_state")
         
-        if risk_state.get('safe_history'):
+        safe_history = risk_state.get('safe_history') if isinstance(risk_state, dict) else None
+        if safe_history:
+            logger.info(f"  ✓ Including safe_history (length: {len(str(safe_history))} chars)")
             story.append(Paragraph("🛡️ Conservative Risk Perspective", subheading_style))
-            safe_text = _sanitize_text(risk_state['safe_history'])
+            safe_text = _sanitize_text(safe_history)
             story.append(Paragraph(safe_text, body_style))
             story.append(Spacer(1, 0.15*inch))
+        else:
+            logger.warning("  ✗ safe_history not found in risk_debate_state")
         
-        if risk_state.get('neutral_history'):
+        neutral_history = risk_state.get('neutral_history') if isinstance(risk_state, dict) else None
+        if neutral_history:
+            logger.info(f"  ✓ Including neutral_history (length: {len(str(neutral_history))} chars)")
             story.append(Paragraph("⚖️ Balanced Risk Perspective", subheading_style))
-            neutral_text = _sanitize_text(risk_state['neutral_history'])
+            neutral_text = _sanitize_text(neutral_history)
             story.append(Paragraph(neutral_text, body_style))
             story.append(Spacer(1, 0.15*inch))
+        else:
+            logger.warning("  ✗ neutral_history not found in risk_debate_state")
         
-        if risk_state.get('judge_decision'):
+        risk_judge_decision = risk_state.get('judge_decision') if isinstance(risk_state, dict) else None
+        if risk_judge_decision:
+            logger.info(f"  ✓ Including judge_decision (length: {len(str(risk_judge_decision))} chars)")
             story.append(Paragraph("👔 Risk Manager Decision", subheading_style))
-            risk_judge_text = _sanitize_text(risk_state['judge_decision'])
+            risk_judge_text = _sanitize_text(risk_judge_decision)
             story.append(Paragraph(risk_judge_text, body_style))
             story.append(Spacer(1, 0.2*inch))
+        else:
+            logger.warning("  ✗ judge_decision not found in risk_debate_state")
+    else:
+        logger.warning("✗ risk_debate_state not found in state")
     
     # Section 6: Trading Strategy
-    if state.get('trader_investment_plan'):
+    trader_investment_plan = state.get('trader_investment_plan')
+    investment_plan = state.get('investment_plan')
+    
+    if trader_investment_plan:
+        logger.info(f"✓ Including trader_investment_plan (length: {len(str(trader_investment_plan))} chars)")
         story.append(Paragraph("📈 TRADING STRATEGY", section_heading_style))
-        trader_plan_text = _sanitize_text(state['trader_investment_plan'])
+        trader_plan_text = _sanitize_text(trader_investment_plan)
         story.append(Paragraph(trader_plan_text, body_style))
         story.append(Spacer(1, 0.2*inch))
-    elif state.get('investment_plan'):
+    elif investment_plan:
+        logger.info(f"✓ Including investment_plan (length: {len(str(investment_plan))} chars)")
         story.append(Paragraph("📈 INVESTMENT PLAN", section_heading_style))
-        plan_text = _sanitize_text(state['investment_plan'])
+        plan_text = _sanitize_text(investment_plan)
         story.append(Paragraph(plan_text, body_style))
         story.append(Spacer(1, 0.2*inch))
+    else:
+        logger.warning("✗ Neither trader_investment_plan nor investment_plan found in state")
     
     # Section 7: Final Recommendation
-    if state.get('final_trade_decision'):
+    final_trade_decision = state.get('final_trade_decision')
+    if final_trade_decision:
+        logger.info(f"✓ Including final_trade_decision (length: {len(str(final_trade_decision))} chars)")
         story.append(Paragraph("🎯 FINAL RECOMMENDATION", section_heading_style))
-        final_decision_text = _sanitize_text(state['final_trade_decision'])
+        final_decision_text = _sanitize_text(final_trade_decision)
         story.append(Paragraph(final_decision_text, body_style))
         story.append(Spacer(1, 0.2*inch))
+    else:
+        logger.warning("✗ final_trade_decision not found in state")
+    
+    # Section 8: Agent Trace with All States
+    if agent_trace:
+        story.append(Paragraph("🔍 AGENT EXECUTION TRACE", section_heading_style))
+        
+        # All 11 agents in the system
+        all_agents = [
+            "Market Analyst",
+            "Fundamentals Analyst", 
+            "Information Analyst",
+            "Bull Researcher",
+            "Bear Researcher",
+            "Research Manager",
+            "Risky Debator",
+            "Safe Debator",
+            "Neutral Debator",
+            "Risk Manager",
+            "Trader"
+        ]
+        
+        # Display agents called
+        agents_called = agent_trace.get('agents_called', [])
+        if agents_called:
+            story.append(Paragraph(f"<b>Agents Executed ({len(agents_called)}):</b>", subheading_style))
+            agents_text = ", ".join(agents_called)
+            story.append(Paragraph(agents_text, body_style))
+            story.append(Spacer(1, 0.1*inch))
+            
+            # Show which agents were NOT called
+            agents_not_called = [a for a in all_agents if a not in agents_called]
+            if agents_not_called:
+                story.append(Paragraph(f"<b>Agents Not Executed ({len(agents_not_called)}):</b>", subheading_style))
+                not_called_text = ", ".join(agents_not_called)
+                story.append(Paragraph(f"<i>{not_called_text}</i>", body_style))
+                story.append(Spacer(1, 0.15*inch))
+        else:
+            story.append(Paragraph(f"<b>All Available Agents ({len(all_agents)}):</b>", subheading_style))
+            all_agents_text = ", ".join(all_agents)
+            story.append(Paragraph(all_agents_text, body_style))
+            story.append(Spacer(1, 0.15*inch))
+        
+        # Display workflow and intent
+        workflow = agent_trace.get('workflow', 'N/A')
+        intent = agent_trace.get('intent', 'N/A')
+        story.append(Paragraph(f"<b>Workflow:</b> {workflow} | <b>Intent:</b> {intent}", body_style))
+        story.append(Spacer(1, 0.15*inch))
+        
+        # Display all trace events
+        events = agent_trace.get('events', [])
+        if events:
+            story.append(Paragraph(f"<b>Execution Events ({len(events)} total):</b>", subheading_style))
+            
+            # Group events by agent
+            agent_events = {}
+            for event in events:
+                agent_name = event.get('agent_name', 'System')
+                if agent_name not in agent_events:
+                    agent_events[agent_name] = []
+                agent_events[agent_name].append(event)
+            
+            # Display events grouped by agent
+            for agent_name, agent_event_list in agent_events.items():
+                story.append(Paragraph(f"<b>🤖 {agent_name}:</b>", subheading_style))
+                
+                for idx, event in enumerate(agent_event_list, 1):
+                    event_type = event.get('event_type', 'unknown')
+                    message = event.get('message', '')
+                    timestamp = event.get('timestamp', '')
+                    progress = event.get('progress')
+                    event_data = event.get('data', {})
+                    
+                    # Format event details
+                    event_details = []
+                    if timestamp:
+                        try:
+                            # Parse and format timestamp
+                            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                            event_details.append(f"Time: {dt.strftime('%H:%M:%S')}")
+                        except:
+                            event_details.append(f"Time: {timestamp[:19] if len(timestamp) > 19 else timestamp}")
+                    
+                    if progress is not None:
+                        event_details.append(f"Progress: {progress}%")
+                    
+                    event_info = f"<b>[{event_type.upper()}]</b> {message}"
+                    if event_details:
+                        event_info += f" ({', '.join(event_details)})"
+                    
+                    story.append(Paragraph(f"  {idx}. {event_info}", bullet_style))
+                    
+                    # Include state data if available in event
+                    if event_data and isinstance(event_data, dict):
+                        state_keys = [k for k in event_data.keys() if 'state' in k.lower() or 'report' in k.lower() or 'decision' in k.lower()]
+                        if state_keys:
+                            state_info = ", ".join(state_keys[:5])  # Limit to first 5 keys
+                            if len(state_keys) > 5:
+                                state_info += f" ... (+{len(state_keys) - 5} more)"
+                            story.append(Paragraph(f"     <i>State keys: {state_info}</i>", bullet_style))
+                
+                story.append(Spacer(1, 0.1*inch))
+            
+            # Display all state keys from the complete state
+            story.append(Paragraph("<b>📊 Complete State Keys:</b>", subheading_style))
+            all_state_keys = list(state.keys())
+            if all_state_keys:
+                # Group state keys by category
+                report_keys = [k for k in all_state_keys if 'report' in k.lower()]
+                debate_keys = [k for k in all_state_keys if 'debate' in k.lower() or 'history' in k.lower()]
+                decision_keys = [k for k in all_state_keys if 'decision' in k.lower() or 'plan' in k.lower()]
+                other_keys = [k for k in all_state_keys if k not in report_keys + debate_keys + decision_keys]
+                
+                if report_keys:
+                    story.append(Paragraph(f"<b>Reports:</b> {', '.join(report_keys)}", bullet_style))
+                if debate_keys:
+                    story.append(Paragraph(f"<b>Debates:</b> {', '.join(debate_keys)}", bullet_style))
+                if decision_keys:
+                    story.append(Paragraph(f"<b>Decisions:</b> {', '.join(decision_keys)}", bullet_style))
+                if other_keys:
+                    story.append(Paragraph(f"<b>Other:</b> {', '.join(other_keys)}", bullet_style))
+            else:
+                story.append(Paragraph("No state keys available", bullet_style))
+            
+            story.append(Spacer(1, 0.2*inch))
     
     # Footer with separator line
     story.append(Spacer(1, 0.4*inch))
@@ -325,10 +577,52 @@ def generate_analysis_pdf(company: str, date: str, decision: str, state: Dict[st
         disclaimer_style
     ))
     
+    # Log summary of what was included
+    logger.info("=" * 80)
+    logger.info("PDF Generation Summary:")
+    logger.info("=" * 80)
+    
+    # Count sections by checking for section headings
+    section_count = sum(1 for p in story if isinstance(p, Paragraph) and hasattr(p, 'style') and p.style.name == 'SectionHeading')
+    logger.info(f"  - Total sections added: {section_count}")
+    logger.info(f"  - Total story elements: {len(story)}")
+    
+    # Count content sections that were actually included
+    content_sections = []
+    if state.get('market_report'):
+        content_sections.append('Market Analysis')
+    if state.get('fundamentals_report'):
+        content_sections.append('Fundamentals Analysis')
+    if state.get('information_report') or state.get('sentiment_report') or state.get('news_report'):
+        content_sections.append('Information/Sentiment Analysis')
+    if state.get('investment_debate_state'):
+        content_sections.append('Investment Debate')
+    if state.get('risk_debate_state'):
+        content_sections.append('Risk Analysis')
+    if state.get('trader_investment_plan') or state.get('investment_plan'):
+        content_sections.append('Trading Strategy')
+    if state.get('final_trade_decision'):
+        content_sections.append('Final Recommendation')
+    if agent_trace:
+        content_sections.append('Agent Trace')
+    
+    logger.info(f"  - Content sections included: {len(content_sections)}")
+    logger.info(f"    Sections: {', '.join(content_sections)}")
+    logger.info(f"  - State keys available: {list(state.keys()) if isinstance(state, dict) else 'N/A'}")
+    logger.info(f"  - Agent trace included: {agent_trace is not None}")
+    
     # Build PDF
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
+    logger.info("Building PDF document...")
+    try:
+        doc.build(story)
+        buffer.seek(0)
+        pdf_size = len(buffer.getvalue())
+        logger.info(f"✓ PDF generated successfully (size: {pdf_size:,} bytes)")
+        logger.info("=" * 80)
+        return buffer
+    except Exception as e:
+        logger.error(f"✗ PDF build failed: {e}", exc_info=True)
+        raise
 
 
 def _sanitize_text(text: str) -> str:

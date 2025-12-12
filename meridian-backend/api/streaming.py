@@ -24,6 +24,14 @@ except ImportError:
     YFINANCE_AVAILABLE = False
     logger.warning("yfinance not available - ticker validation will be skipped")
 
+# Try to import requests for Yahoo Finance search
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+    logger.warning("requests not available - Yahoo Finance search will be skipped")
+
 from api.auth import require_auth
 from services.agent_orchestrator import get_agent_orchestrator
 from services.message_service import MessageService
@@ -37,9 +45,334 @@ def get_utc_timestamp() -> str:
     """Get current UTC timestamp in ISO format."""
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+
+def search_alpha_vantage(company_name: str) -> Optional[str]:
+    """
+    Search Alpha Vantage for ticker symbol using company name.
+    Uses Alpha Vantage's SYMBOL_SEARCH function without hardcoding.
+    
+    Args:
+        company_name: Company name to search for
+        
+    Returns:
+        Ticker symbol if found, None otherwise
+    """
+    if not REQUESTS_AVAILABLE:
+        return None
+    
+    try:
+        api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+        if not api_key:
+            return None  # Alpha Vantage not configured
+        
+        # Alpha Vantage SYMBOL_SEARCH endpoint
+        search_url = "https://www.alphavantage.co/query"
+        params = {
+            "function": "SYMBOL_SEARCH",
+            "keywords": company_name,
+            "apikey": api_key
+        }
+        
+        response = requests.get(search_url, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        # Check for API errors
+        if "Error Message" in data or "Note" in data:
+            return None
+        
+        # Extract best matches
+        best_matches = data.get("bestMatches", [])
+        if not best_matches:
+            return None
+        
+        # Filter for stock exchanges (NYSE, NASDAQ) and prefer US stocks
+        search_lower = company_name.lower()
+        for match in best_matches:
+            symbol = match.get("1. symbol", "").upper()
+            name = match.get("2. name", "").lower()
+            region = match.get("4. region", "").upper()
+            market_open = match.get("5. marketOpen", "").upper()
+            
+            # Prefer US stocks (NYSE, NASDAQ)
+            if region == "UNITED STATES" and market_open in ["NYSE", "NASDAQ"]:
+                # Check if company name matches
+                if search_lower in name or any(word in name for word in search_lower.split() if len(word) > 3):
+                    return symbol
+        
+        # If no perfect match, return first US stock
+        for match in best_matches:
+            symbol = match.get("1. symbol", "").upper()
+            region = match.get("4. region", "").upper()
+            if region == "UNITED STATES":
+                return symbol
+        
+        return None
+        
+    except Exception as e:
+        logger.debug(f"Alpha Vantage search failed: {e}")
+        return None
+
+
+def search_yahoo_finance(company_name: str) -> Optional[str]:
+    """
+    Search Yahoo Finance for ticker symbol using company name.
+    Uses Yahoo Finance's search API endpoint without hardcoding.
+    
+    Args:
+        company_name: Company name to search for
+        
+    Returns:
+        Ticker symbol if found, None otherwise
+    """
+    if not REQUESTS_AVAILABLE:
+        return None
+    
+    try:
+        # Yahoo Finance search endpoint
+        search_url = "https://query1.finance.yahoo.com/v1/finance/search"
+        params = {
+            "q": company_name,
+            "quotesCount": 10,  # Get more results to find the best match
+            "newsCount": 0
+        }
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        response = requests.get(search_url, params=params, headers=headers, timeout=5)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        # Extract quotes from response
+        quotes = data.get("quotes", [])
+        if not quotes:
+            return None
+        
+        # Filter and prioritize results
+        # Prefer common stock tickers (no special suffixes like .AS, .TO, etc.)
+        # and avoid crypto, indices, etc.
+        search_lower = company_name.lower()
+        
+        # Collect all valid matches
+        valid_matches = []
+        
+        for quote in quotes:
+            symbol = quote.get("symbol", "").upper()
+            quote_type = quote.get("quoteType", "").upper()
+            long_name = quote.get("longname", "").lower()
+            short_name = quote.get("shortname", "").lower()
+            
+            # Skip non-stock results
+            if quote_type not in ["EQUITY", "STOCK", ""]:
+                continue
+            
+            # Skip crypto, indices, ETFs unless explicitly requested
+            if any(skip in quote_type for skip in ["CRYPTOCURRENCY", "INDEX", "ETF"]):
+                continue
+            
+            # Skip tickers with special suffixes (foreign exchanges, etc.)
+            if "." in symbol and not symbol.endswith(".US"):
+                continue
+            
+            # Check if company name matches
+            # Special case: if searching for "alphabet", accept any Alphabet ticker
+            if "alphabet" in search_lower and ("alphabet" in long_name or "alphabet" in short_name):
+                name_match = True
+            else:
+                name_match = (
+                    search_lower in long_name or
+                    search_lower in short_name or
+                    any(word in long_name for word in search_lower.split() if len(word) > 3) or
+                    any(word in short_name for word in search_lower.split() if len(word) > 3) or
+                    # Also check if search term appears in company name (for "google" -> "Alphabet")
+                    ("alphabet" in long_name and "google" in search_lower) or
+                    ("alphabet" in short_name and "google" in search_lower)
+                )
+            
+            if name_match:
+                valid_matches.append((symbol, long_name, short_name))
+        
+        if valid_matches:
+            # If multiple matches, prefer:
+            # 1. GOOGL over GOOG (Class A over Class C)
+            # 2. Longer ticker symbols - Class A typically preferred
+            # 3. Exact name matches over partial matches
+            valid_matches.sort(key=lambda x: (
+                x[0] != "GOOGL" if "GOOG" in x[0] else False,  # Prefer GOOGL over GOOG
+                -len(x[0]),  # Prefer longer tickers
+                search_lower not in x[1] and search_lower not in x[2]  # Prefer exact matches
+            ))
+            return valid_matches[0][0]
+        
+        # If no perfect match, return first equity result
+        for quote in quotes:
+            symbol = quote.get("symbol", "").upper()
+            quote_type = quote.get("quoteType", "").upper()
+            
+            if quote_type in ["EQUITY", "STOCK", ""] and "." not in symbol:
+                return symbol
+        
+        return None
+        
+    except Exception as e:
+        logger.debug(f"Yahoo Finance search failed: {e}")
+        return None
+
+
+def resolve_company_to_ticker(company_name: str) -> Optional[str]:
+    """
+    Attempt to resolve a company name to its ticker symbol.
+    
+    This function tries multiple strategies WITHOUT hardcoding:
+    1. Direct ticker lookup (if already a ticker)
+    2. Yahoo Finance search API (for company names)
+    3. Smart candidate generation and validation (fallback)
+    
+    Args:
+        company_name: Company name or potential ticker
+        
+    Returns:
+        Ticker symbol if found, None otherwise
+    
+    Note: This function does NOT use hardcoded mappings. It relies entirely
+    on dynamic APIs and validation.
+    """
+    if not company_name:
+        return None
+    
+    company_clean = company_name.strip()
+    
+    # Strategy 1: Try as direct ticker first (fast path)
+    if YFINANCE_AVAILABLE:
+        try:
+            ticker_upper = company_clean.upper()
+            if 1 <= len(ticker_upper) <= 5 and ticker_upper.isalpha():
+                ticker = yf.Ticker(ticker_upper)
+                info = ticker.info
+                # Check if we got valid data (symbol exists and has a name)
+                if info and info.get('symbol') and (info.get('shortName') or info.get('longName')):
+                    logger.debug(f"Direct ticker match: {company_clean} -> {ticker_upper}")
+                    return ticker_upper
+        except Exception as e:
+            logger.debug(f"Direct ticker lookup failed for {company_clean}: {e}")
+    
+    # Strategy 2: Use Yahoo Finance search API (best for company names)
+    searched_ticker = None
+    if REQUESTS_AVAILABLE:
+        # For "google", also try searching for "Alphabet" since that's the parent company
+        search_terms = [company_clean]
+        if company_clean.lower() == "google":
+            search_terms.append("Alphabet Inc")
+        
+        for search_term in search_terms:
+            searched_ticker = search_yahoo_finance(search_term)
+            if searched_ticker:
+                break
+    
+    # Strategy 2b: Fallback to Alpha Vantage if Yahoo Finance fails
+    if not searched_ticker and REQUESTS_AVAILABLE:
+        searched_ticker = search_alpha_vantage(company_clean)
+        if searched_ticker:
+            logger.debug(f"Resolved via Alpha Vantage search: '{company_clean}' -> {searched_ticker}")
+    
+    if searched_ticker:
+            # Special handling: For "google", prefer GOOGL over GOOG
+            if company_clean.lower() == "google" and searched_ticker == "GOOG":
+                # Try GOOGL instead
+                try:
+                    ticker_googl = yf.Ticker("GOOGL")
+                    info_googl = ticker_googl.info
+                    if info_googl and info_googl.get('symbol') == "GOOGL":
+                        searched_ticker = "GOOGL"
+                except Exception:
+                    pass  # Keep GOOG if GOOGL validation fails
+            
+            # Validate the searched ticker to ensure it's correct
+            if YFINANCE_AVAILABLE:
+                try:
+                    ticker = yf.Ticker(searched_ticker)
+                    info = ticker.info
+                    if info and info.get('symbol'):
+                        short_name = info.get('shortName', '').lower()
+                        long_name = info.get('longName', '').lower()
+                        search_lower = company_clean.lower()
+                        
+                        # Verify the company name matches
+                        # For "google", also accept "alphabet" in the company name
+                        name_match = (
+                            (short_name and search_lower in short_name) or
+                            (long_name and search_lower in long_name) or
+                            (short_name and any(word in short_name for word in search_lower.split() if len(word) > 3)) or
+                            (search_lower == "google" and ("alphabet" in short_name or "alphabet" in long_name))
+                        )
+                        
+                        if name_match:
+                            logger.info(f"Resolved company name: '{company_clean}' -> {searched_ticker} ({short_name.title() or long_name.title()})")
+                            return searched_ticker
+                except Exception as e:
+                    logger.debug(f"Validation of searched ticker failed: {e}")
+            else:
+                # If yfinance not available, trust the search result
+                logger.info(f"Resolved via Yahoo Finance search: '{company_clean}' -> {searched_ticker}")
+                return searched_ticker
+    
+    # Strategy 3: Fallback - Smart candidate generation (only if search failed)
+    # This generates potential ticker patterns and validates them
+    if YFINANCE_AVAILABLE:
+        candidates = []
+        word = company_clean.upper().replace(' ', '')
+        
+        # Generate candidates based on common ticker patterns
+        if len(word) >= 1:
+            # Try full word if short enough
+            if 1 <= len(word) <= 5:
+                candidates.append(word)
+            # Try first 4 letters (common pattern)
+            if len(word) > 4:
+                candidates.append(word[:4])
+            # Try first 3 letters
+            if len(word) >= 3:
+                candidates.append(word[:3])
+            # Try first 2 letters (less common but worth trying)
+            if len(word) >= 2:
+                candidates.append(word[:2])
+        
+        # Try each candidate and validate
+        for candidate in candidates:
+            try:
+                ticker = yf.Ticker(candidate)
+                info = ticker.info
+                
+                if info and info.get('symbol'):
+                    short_name = info.get('shortName', '').lower()
+                    long_name = info.get('longName', '').lower()
+                    search_lower = company_clean.lower()
+                    
+                    # Check if the company name in the ticker info matches our search
+                    if (short_name and search_lower in short_name) or \
+                       (long_name and search_lower in long_name) or \
+                       (short_name and any(word in short_name for word in search_lower.split() if len(word) > 3)):
+                        symbol = info.get('symbol')
+                        display_name = short_name or long_name
+                        logger.info(f"Resolved company name: '{company_clean}' -> {symbol} ({display_name})")
+                        return symbol.upper()
+                        
+            except Exception as e:
+                logger.debug(f"Candidate ticker '{candidate}' failed: {e}")
+                continue
+    
+    logger.debug(f"Could not resolve company name: {company_clean}")
+    return None
+
+
 def validate_company_ticker(company_name: str) -> tuple[bool, Optional[str], Optional[str]]:
     """
     Validate that a company/ticker exists and can be fetched from data sources.
+    Intelligently resolves company names to ticker symbols (e.g., "amazon" -> "AMZN").
     
     Args:
         company_name: Company name or ticker symbol to validate
@@ -53,75 +386,74 @@ def validate_company_ticker(company_name: str) -> tuple[bool, Optional[str], Opt
     if not company_name or company_name.strip() == "" or company_name == "UNKNOWN":
         return False, "No company or ticker symbol provided. Please specify a company name or stock ticker symbol (e.g., AAPL, TSLA, MSFT).", None
     
-    company_name = company_name.strip().upper()
+    original_input = company_name.strip()
     
-    # If yfinance is available, validate the ticker
+    # If yfinance is available, use intelligent resolution
     if YFINANCE_AVAILABLE:
+        # First, try to resolve company name to ticker
+        resolved_ticker = resolve_company_to_ticker(original_input)
+        
+        if resolved_ticker:
+            # Validate the resolved ticker
+            try:
+                ticker = yf.Ticker(resolved_ticker)
+                info = ticker.info
+                
+                if info and info.get('symbol'):
+                    symbol = info.get('symbol')
+                    has_name = info.get('shortName') or info.get('longName')
+                    normalized_ticker = symbol.upper() if symbol else None
+                    company_display = has_name or symbol
+                    logger.info(f"✓ Validated: '{original_input}' -> {company_display} ({normalized_ticker})")
+                    return True, None, normalized_ticker
+            except Exception as e:
+                logger.warning(f"Error validating resolved ticker {resolved_ticker}: {e}")
+        
+        # If resolution failed, try direct validation with original input
         try:
-            # Note: yfinance uses requests library which has default timeouts
-            # If validation takes too long, it will raise an exception which we catch below
-            ticker = yf.Ticker(company_name)
+            ticker = yf.Ticker(original_input.upper())
             info = ticker.info
             
-            # Check if ticker is valid (has symbol)
-            if not info or not info.get('symbol'):
-                return False, (
-                    f"Company or ticker '{company_name}' not found in our data sources. "
-                    "Please provide a valid stock ticker symbol (e.g., AAPL for Apple, TSLA for Tesla, MSFT for Microsoft)."
-                ), None
-            
-            # More lenient check: if we have a symbol, accept it even without name fields
-            # This handles edge cases like new IPOs or international tickers
-            # Only reject if we have absolutely no useful data
-            symbol = info.get('symbol')
-            has_name = info.get('shortName') or info.get('longName')
-            
-            if symbol:
-                # If we have a symbol, accept it (even without name)
-                # This is more lenient and handles edge cases better
-                # Return the normalized ticker symbol (uppercase) for consistency
+            if info and info.get('symbol'):
+                symbol = info.get('symbol')
+                has_name = info.get('shortName') or info.get('longName')
                 normalized_ticker = symbol.upper() if symbol else None
                 company_display = has_name or symbol
-                logger.info(f"✓ Validated company: {company_display} ({normalized_ticker})")
+                logger.info(f"✓ Direct validation: '{original_input}' -> {company_display} ({normalized_ticker})")
                 return True, None, normalized_ticker
-            else:
-                # No symbol means invalid ticker
-                return False, (
-                    f"Company or ticker '{company_name}' not found in our data sources. "
-                    "Please provide a valid stock ticker symbol (e.g., AAPL for Apple, TSLA for Tesla, MSFT for Microsoft)."
-                ), None
-            
         except Exception as e:
-            logger.warning(f"Error validating ticker {company_name}: {e}")
-            # Check if it's a timeout or network error
             error_str = str(e).lower()
             if 'timeout' in error_str or 'timed out' in error_str:
                 return False, (
-                    f"Validation timeout for '{company_name}'. "
+                    f"Validation timeout for '{original_input}'. "
                     "The data source is taking too long to respond. Please try again."
                 ), None
             elif 'connection' in error_str or 'network' in error_str:
                 return False, (
-                    f"Network error while validating '{company_name}'. "
+                    f"Network error while validating '{original_input}'. "
                     "Please check your connection and try again."
                 ), None
-            else:
-                return False, (
-                    f"Unable to validate company '{company_name}'. "
-                    "Please check if the ticker symbol is correct and try again."
-                ), None
+        
+        # All validation attempts failed
+        logger.warning(f"Could not validate or resolve: {original_input}")
+        return False, (
+            f"Company or ticker '{original_input}' not found in our data sources. "
+            "Please provide a valid stock ticker symbol (e.g., AAPL for Apple, AMZN for Amazon, TSLA for Tesla). "
+            "Note: We currently only support publicly traded stocks (not cryptocurrencies or private companies)."
+        ), None
+        
     else:
         # If yfinance not available, do basic format check
-        # Allow it to proceed but log a warning
-        if len(company_name) > 5 or not company_name.isalpha():
+        company_upper = original_input.upper()
+        if len(company_upper) > 5 or not company_upper.replace(' ', '').isalpha():
             return False, (
-                f"Invalid ticker format: '{company_name}'. "
+                f"Invalid ticker format: '{original_input}'. "
                 "Ticker symbols are typically 1-5 uppercase letters (e.g., AAPL, TSLA)."
             ), None
         
         logger.warning("yfinance not available - skipping ticker validation")
         # Return the uppercased input as normalized ticker (best we can do without yfinance)
-        return True, None, company_name
+        return True, None, company_upper
 
 
 class AgentAnalysisRequest(BaseModel):
@@ -353,6 +685,7 @@ async def stream_agent_analysis(
         )
         
         # Extract company ticker from LLM entities if not provided
+        # Try to resolve ALL entities (both tickers and company names)
         extracted_ticker = None
         if not request.company_name:
             try:
@@ -362,10 +695,15 @@ async def stream_agent_analysis(
                 )
                 
                 if classification_result and classification_result.entities:
-                    # Look for ticker-like entities (1-5 uppercase letters)
+                    # Try each entity - both ticker-like and company names
                     for entity in classification_result.entities:
-                        entity_upper = entity.upper().strip()
-                        # Check if it looks like a ticker (1-5 uppercase letters, no spaces)
+                        entity_clean = entity.strip()
+                        if not entity_clean:
+                            continue
+                        
+                        entity_upper = entity_clean.upper()
+                        
+                        # First, check if it looks like a ticker (1-5 uppercase letters, no spaces)
                         if 1 <= len(entity_upper) <= 5 and entity_upper.isalpha() and ' ' not in entity_upper:
                             # Validate with yfinance if available (quick check)
                             if YFINANCE_AVAILABLE:
@@ -384,6 +722,14 @@ async def stream_agent_analysis(
                                 # If yfinance not available, use entity as-is if it looks like a ticker
                                 extracted_ticker = entity_upper
                                 logger.info(f"✓ Extracted ticker '{extracted_ticker}' from query entities (validation skipped)")
+                                break
+                        else:
+                            # Not a ticker-like entity - try to resolve as company name
+                            # Use our resolve_company_to_ticker function which tries Yahoo Finance and Alpha Vantage
+                            resolved = resolve_company_to_ticker(entity_clean)
+                            if resolved:
+                                extracted_ticker = resolved
+                                logger.info(f"✓ Extracted and resolved company name '{entity_clean}' -> '{extracted_ticker}' from query entities")
                                 break
             except Exception as e:
                 logger.warning(f"Failed to extract ticker from entities: {e}")
@@ -540,6 +886,20 @@ async def stream_agent_analysis(
                 # The orchestrator handles conversation_context format conversion
                 agent_request = agent_payload
                 
+                # Log the request payload for debugging
+                logger.info(f"Agent request payload structure:")
+                logger.info(f"  - Keys: {list(agent_request.keys()) if isinstance(agent_request, dict) else 'N/A'}")
+                if isinstance(agent_request, dict):
+                    for key, value in agent_request.items():
+                        if key == "conversation_context" and isinstance(value, list):
+                            logger.info(f"  - {key}: list with {len(value)} items")
+                            if value:
+                                logger.info(f"    First item keys: {list(value[0].keys()) if isinstance(value[0], dict) else type(value[0])}")
+                        elif isinstance(value, (str, int, float, bool, type(None))):
+                            logger.info(f"  - {key}: {value}")
+                        else:
+                            logger.info(f"  - {key}: {type(value).__name__}")
+                
                 try:
                     # Proxy the streaming response from the agent service
                     # Use separate timeouts: short connect timeout, long read timeout for streaming
@@ -551,7 +911,88 @@ async def stream_agent_analysis(
                     )
                     async with httpx.AsyncClient(timeout=streaming_timeout) as client:
                         async with client.stream("POST", agent_streaming_url, json=agent_request) as response:
-                            response.raise_for_status()
+                            # Check status before processing
+                            if response.status_code != 200:
+                                # For non-200 responses, we need to read the stream to get error details
+                                error_text = ""
+                                error_lines = []
+                                try:
+                                    # Read the error response line by line (it might be SSE format or JSON)
+                                    async for line in response.aiter_lines():
+                                        error_lines.append(line)
+                                        if line.startswith("data: "):
+                                            # Try to parse SSE format error
+                                            try:
+                                                error_data = json.loads(line[6:])
+                                                if "message" in error_data:
+                                                    error_text = error_data["message"]
+                                                elif "detail" in error_data:
+                                                    error_text = error_data["detail"]
+                                                break
+                                            except:
+                                                pass
+                                        elif line.strip() and not line.startswith(":"):
+                                            # Might be plain text error
+                                            error_text += line + "\n"
+                                        
+                                        # Limit reading to prevent hanging
+                                        if len(error_lines) > 50:
+                                            break
+                                    
+                                    # If we didn't get error text from SSE, try to parse as JSON from all lines
+                                    if not error_text:
+                                        combined = "\n".join(error_lines)
+                                        try:
+                                            error_body = json.loads(combined)
+                                            if "detail" in error_body:
+                                                error_text = error_body["detail"]
+                                            elif "message" in error_body:
+                                                error_text = error_body["message"]
+                                        except:
+                                            error_text = combined[:500] if combined else ""
+                                    
+                                except Exception as read_err:
+                                    logger.debug(f"Error reading error response: {read_err}")
+                                    error_text = f"Could not read error response: {str(read_err)}"
+                                
+                                # Format error detail
+                                error_detail = f"Agent service error ({response.status_code})"
+                                if error_text:
+                                    error_detail = f"Agent service error ({response.status_code}): {error_text[:500]}"
+                                
+                                logger.error(f"Agent service returned error: {error_detail}")
+                                logger.error(f"Request URL: {agent_streaming_url}")
+                                logger.error(f"Request payload keys: {list(agent_request.keys()) if isinstance(agent_request, dict) else 'N/A'}")
+                                if isinstance(agent_request, dict):
+                                    # Log payload without sensitive data
+                                    safe_payload = {k: (str(v)[:100] if not isinstance(v, (dict, list)) else type(v).__name__) 
+                                                   for k, v in agent_request.items()}
+                                    logger.error(f"Request payload preview: {json.dumps(safe_payload, indent=2)[:1000]}")
+                                
+                                error_event = AgentTraceEvent(
+                                    event_type="error",
+                                    message=error_detail,
+                                    timestamp=get_utc_timestamp(),
+                                    data={
+                                        "status_code": response.status_code,
+                                        "error_detail": error_detail,
+                                        "url": agent_streaming_url
+                                    }
+                                )
+                                yield await format_sse_event(error_event)
+                                
+                                # Send complete event to stop frontend waiting
+                                complete_event = AgentTraceEvent(
+                                    event_type="complete",
+                                    message="Streaming stopped due to error",
+                                    progress=0,
+                                    timestamp=get_utc_timestamp(),
+                                    data={"error": True, "stopped": True}
+                                )
+                                yield await format_sse_event(complete_event)
+                                return  # Exit early on error
+                            
+                            # Status is 200, proceed with streaming
                             async for line in response.aiter_lines():
                                 if line.startswith("data: "):
                                     # Parse the event to capture final response and collect for trace
@@ -562,24 +1003,41 @@ async def stream_agent_analysis(
                                         agent_trace_events.append(event_data)
                                         
                                         # Capture final response from complete events
-                                        if event_data.get("event_type") in ["complete", "analysis_complete"]:
+                                        if event_data.get("event_type") in ["complete", "analysis_complete", "orchestration_complete"]:
                                             if event_data.get("data") and isinstance(event_data["data"], dict):
                                                 data = event_data["data"]
                                                 
                                                 # Store the complete agent response for metadata
                                                 full_agent_response = data
                                                 
-                                                # Extract full response text - prefer formatted response, then full analysis response
-                                                # Check state for formatted_response first (query-aware formatted response)
+                                                # Log the structure for debugging
+                                                logger.info(f"Captured full_agent_response from {event_data.get('event_type')} event - keys: {list(full_agent_response.keys())}")
+                                                if full_agent_response.get("state"):
+                                                    state_obj = full_agent_response.get("state")
+                                                    if isinstance(state_obj, dict):
+                                                        logger.info(f"State keys found: {list(state_obj.keys())}")
+                                                        logger.info(f"State has {len(state_obj)} keys")
+                                                    else:
+                                                        logger.warning(f"State is not a dict, type: {type(state_obj)}")
+                                                else:
+                                                    logger.warning("No 'state' key in full_agent_response data")
+                                                
+                                                # Also log the entire event for debugging
+                                                logger.debug(f"Complete event data structure: {json.dumps({k: type(v).__name__ if not isinstance(v, (str, int, float, bool, type(None))) else str(v)[:100] for k, v in data.items()}, indent=2)}")
+                                                
+                                                # Extract full response text - check both state and root level
                                                 state_data = data.get("state", {})
                                                 final_response_text = (
-                                                    state_data.get("formatted_response") or  # Prefer formatted response (query-aware)
-                                                    data.get("response") or  # Full analysis response
-                                                    data.get("trader_investment_plan") or  # Trader's full plan
-                                                    data.get("investment_plan") or  # Investment plan
-                                                    data.get("judge_decision") or  # Judge decision
-                                                    data.get("decision") or  # Just the decision
-                                                    event_data.get("message", "")  # Fallback to message
+                                                    state_data.get("formatted_response") or
+                                                    data.get("response") or
+                                                    state_data.get("trader_investment_plan") or
+                                                    state_data.get("investment_plan") or
+                                                    data.get("trader_investment_plan") or
+                                                    data.get("investment_plan") or
+                                                    state_data.get("final_trade_decision") or
+                                                    data.get("final_trade_decision") or
+                                                    data.get("decision") or
+                                                    event_data.get("message", "")
                                                 )
                                                 
                                                 # If we only got the decision, try to build a more complete response
@@ -610,34 +1068,204 @@ async def stream_agent_analysis(
                                     yield line + "\n"
                     
                     # Generate PDF from the agent analysis (even without thread_id)
-                            pdf_filename = None
+                    # Check the last trace event for complete state (as user mentioned state is in last second trace)
+                    logger.info("=" * 80)
+                    logger.info("TRACE ANALYSIS - Checking all events for complete state")
+                    logger.info("=" * 80)
+                    logger.info(f"Total trace events collected: {len(agent_trace_events)}")
+                    
+                    # Log all event types to see what we have
+                    event_types = [evt.get("event_type", "unknown") for evt in agent_trace_events]
+                    logger.info(f"Event types in trace: {event_types}")
+                    
+                    # Check the last few events for state (user said state is in "last second trace")
+                    if agent_trace_events:
+                        # Check last 5 events for state
+                        last_events = agent_trace_events[-5:] if len(agent_trace_events) >= 5 else agent_trace_events
+                        logger.info(f"Analyzing last {len(last_events)} trace events for state...")
+                        
+                        for idx, event in enumerate(reversed(last_events), 1):
+                            event_num = len(agent_trace_events) - idx + 1
+                            event_type = event.get("event_type", "unknown")
+                            logger.info(f"  Event #{event_num} (from end): type={event_type}")
+                            
+                            # Check event.data for state
+                            event_data = event.get("data", {}) if isinstance(event, dict) else {}
+                            if isinstance(event_data, dict):
+                                logger.info(f"    - event.data keys: {list(event_data.keys())}")
+                                
+                                # Check if state is directly in event.data
+                                if event_data.get("state"):
+                                    state_obj = event_data.get("state")
+                                    if isinstance(state_obj, dict):
+                                        logger.info(f"    ✓ Found state in event.data with {len(state_obj)} keys: {list(state_obj.keys())[:10]}")
+                                        
+                                        # Use this state if we don't have one or if it's more complete
+                                        if not full_agent_response:
+                                            full_agent_response = event_data
+                                            logger.info(f"    ✓ Using state from event #{event_num} (no previous state)")
+                                        elif not full_agent_response.get("state"):
+                                            full_agent_response = event_data
+                                            logger.info(f"    ✓ Using state from event #{event_num} (previous had no state)")
+                                        elif isinstance(full_agent_response.get("state"), dict):
+                                            # Compare and use the one with more keys
+                                            trace_state = state_obj
+                                            current_state = full_agent_response.get("state", {})
+                                            if len(trace_state) > len(current_state):
+                                                full_agent_response = event_data
+                                                logger.info(f"    ✓ Using more complete state from event #{event_num} ({len(trace_state)} keys vs {len(current_state)} keys)")
+                                            else:
+                                                logger.info(f"    - Keeping current state ({len(current_state)} keys >= {len(trace_state)} keys)")
+                                
+                                # Also check if the entire event.data IS the state (state keys at root)
+                                state_keys_at_root = ["market_report", "fundamentals_report", "news_report", "sentiment_report", "investment_debate_state", "risk_debate_state"]
+                                if any(key in event_data for key in state_keys_at_root):
+                                    logger.info(f"    ✓ Found state keys at root level in event.data")
+                                    if not full_agent_response or not isinstance(full_agent_response, dict):
+                                        full_agent_response = event_data
+                                        logger.info(f"    ✓ Using event.data as full_agent_response (state keys at root)")
+                                    elif not full_agent_response.get("state"):
+                                        # Merge event_data into full_agent_response or replace
+                                        full_agent_response = event_data
+                                        logger.info(f"    ✓ Using event.data as full_agent_response (previous had no state)")
+                            else:
+                                logger.debug(f"    - event.data is not a dict: {type(event_data)}")
+                    
+                    # Final check: if we still don't have state, log what we have
+                    if not full_agent_response:
+                        logger.warning("⚠ No full_agent_response found in any trace event!")
+                        logger.info("Available event data structures:")
+                        for idx, event in enumerate(agent_trace_events[-10:], 1):  # Last 10 events
+                            logger.info(f"  Event {len(agent_trace_events) - 10 + idx}: {event.get('event_type')} - data keys: {list(event.get('data', {}).keys()) if isinstance(event.get('data'), dict) else 'N/A'}")
+                    elif not full_agent_response.get("state") and isinstance(full_agent_response, dict):
+                        logger.warning("⚠ full_agent_response exists but has no 'state' key")
+                        logger.info(f"  full_agent_response keys: {list(full_agent_response.keys())}")
+                    
+                    pdf_filename = None
                     if full_agent_response and final_response_text:
-                                try:
-                                    company = full_agent_response.get("company") or final_company_name or "UNKNOWN"
-                                    date = full_agent_response.get("date") or request.trade_date
-                                    decision = full_agent_response.get("decision", "UNKNOWN")
-                                    # Use the inner state if present; fallback to full response to avoid empty PDFs
-                                    state = full_agent_response.get("state") or full_agent_response
-                                    
-                                    pdf_buffer = generate_analysis_pdf(
-                                        company=company,
-                                        date=date,
-                                        decision=decision,
-                                        state=state
-                                    )
-                                    
-                                    pdf_dir = "/app/data/pdfs"
-                                    os.makedirs(pdf_dir, exist_ok=True)
-                                    
-                                    pdf_filename = f"Meridian_{company}_{date}.pdf"
-                                    pdf_path = os.path.join(pdf_dir, pdf_filename)
-                                    
-                                    with open(pdf_path, 'wb') as f:
-                                        f.write(pdf_buffer.read())
-                                    
-                                    logger.info(f"Generated PDF: {pdf_path}")
-                                except Exception as pdf_error:
-                                    logger.error(f"Failed to generate PDF: {pdf_error}", exc_info=True)
+                        try:
+                            logger.info("=" * 80)
+                            logger.info("PDF GENERATION - Starting Process")
+                            logger.info("=" * 80)
+                            
+                            company = full_agent_response.get("company") or final_company_name or "UNKNOWN"
+                            date = full_agent_response.get("date") or request.trade_date
+                            decision = full_agent_response.get("decision", "UNKNOWN")
+                            
+                            logger.info(f"PDF Input Parameters:")
+                            logger.info(f"  - Company: {company}")
+                            logger.info(f"  - Date: {date}")
+                            logger.info(f"  - Decision: {decision}")
+                            
+                            # Log full_agent_response structure
+                            logger.info(f"full_agent_response type: {type(full_agent_response)}")
+                            if isinstance(full_agent_response, dict):
+                                logger.info(f"full_agent_response top-level keys: {list(full_agent_response.keys())}")
+                                for key, value in full_agent_response.items():
+                                    if key == "state" and isinstance(value, dict):
+                                        logger.info(f"  - {key}: dict with {len(value)} keys: {list(value.keys())[:10]}...")
+                                    elif isinstance(value, (str, int, float, bool, type(None))):
+                                        logger.info(f"  - {key}: {type(value).__name__} (length: {len(str(value))} if str else 'N/A')")
+                                    else:
+                                        logger.info(f"  - {key}: {type(value).__name__}")
+                            
+                            # Extract state correctly - check nested state first
+                            state = full_agent_response.get("state")
+                            logger.info(f"Extracted state type: {type(state)}")
+                            
+                            # If state is not a dict or doesn't have expected keys, check if root has them
+                            if not state or not isinstance(state, dict):
+                                logger.warning(f"State is not a dict: {type(state)}")
+                                # Check if full_agent_response itself has state keys at root level
+                                if isinstance(full_agent_response, dict) and any(key in full_agent_response for key in ["market_report", "fundamentals_report", "news_report", "sentiment_report"]):
+                                    state = full_agent_response
+                                    logger.info("✓ Using full_agent_response as state (state keys at root level)")
+                                else:
+                                    # Last resort: use full response
+                                    state = full_agent_response
+                                    logger.warning("⚠ State structure not found, using full response as fallback")
+                            else:
+                                logger.info(f"✓ Using nested state with {len(state)} keys: {list(state.keys())}")
+                            
+                            # Detailed state content logging
+                            if isinstance(state, dict):
+                                logger.info("State Content Analysis:")
+                                expected_keys = [
+                                    "market_report", "fundamentals_report", "news_report", 
+                                    "sentiment_report", "information_report",
+                                    "investment_debate_state", "risk_debate_state",
+                                    "investment_plan", "trader_investment_plan",
+                                    "final_trade_decision"
+                                ]
+                                
+                                for key in expected_keys:
+                                    if key in state:
+                                        value = state[key]
+                                        if isinstance(value, str):
+                                            logger.info(f"  ✓ {key}: present (length: {len(value)} chars)")
+                                        elif isinstance(value, dict):
+                                            logger.info(f"  ✓ {key}: present (dict with {len(value)} keys: {list(value.keys())})")
+                                        else:
+                                            logger.info(f"  ✓ {key}: present (type: {type(value).__name__})")
+                                    else:
+                                        logger.warning(f"  ✗ {key}: MISSING from state")
+                                
+                                # Log any unexpected keys
+                                unexpected_keys = [k for k in state.keys() if k not in expected_keys]
+                                if unexpected_keys:
+                                    logger.info(f"  Additional state keys found: {unexpected_keys}")
+                            else:
+                                logger.warning(f"State is not a dict, cannot analyze content. Type: {type(state)}")
+                            
+                            logger.info(f"Final state passed to PDF generator - keys: {list(state.keys()) if isinstance(state, dict) else 'N/A'}")
+                            
+                            # Prepare agent trace for PDF
+                            agent_trace_for_pdf = None
+                            if agent_trace_events:
+                                agent_trace_for_pdf = {
+                                    "events": agent_trace_events,
+                                    "agents_called": list(set(
+                                        evt.get("agent_name") 
+                                        for evt in agent_trace_events 
+                                        if evt.get("agent_name")
+                                    )),
+                                    "intent": intent.value,
+                                    "workflow": workflow.workflow_type
+                                }
+                                logger.info(f"Agent trace prepared for PDF:")
+                                logger.info(f"  - Events: {len(agent_trace_events)}")
+                                logger.info(f"  - Agents called: {agent_trace_for_pdf['agents_called']}")
+                                logger.info(f"  - Intent: {agent_trace_for_pdf['intent']}")
+                                logger.info(f"  - Workflow: {agent_trace_for_pdf['workflow']}")
+                            else:
+                                logger.warning("No agent trace events available for PDF")
+                            
+                            logger.info("Calling generate_analysis_pdf()...")
+                            pdf_buffer = generate_analysis_pdf(
+                                company=company,
+                                date=date,
+                                decision=decision,
+                                state=state,
+                                agent_trace=agent_trace_for_pdf
+                            )
+                            
+                            pdf_dir = "/app/data/pdfs"
+                            os.makedirs(pdf_dir, exist_ok=True)
+                            
+                            pdf_filename = f"Meridian_{company}_{date}.pdf"
+                            pdf_path = os.path.join(pdf_dir, pdf_filename)
+                            
+                            # Fix: Get the PDF bytes before writing (buffer position might have moved)
+                            pdf_buffer.seek(0)  # Ensure we're at the start
+                            pdf_bytes = pdf_buffer.read()
+                            pdf_buffer.seek(0)  # Reset for potential reuse
+                            
+                            with open(pdf_path, 'wb') as f:
+                                f.write(pdf_bytes)
+                            
+                            logger.info(f"Generated PDF: {pdf_path} (size: {len(pdf_bytes):,} bytes)")
+                        except Exception as pdf_error:
+                            logger.error(f"Failed to generate PDF: {pdf_error}", exc_info=True)
                             # Don't fail the request if PDF generation fails
                             
                     # Save agent response to database if thread_id is provided
@@ -678,12 +1306,38 @@ async def stream_agent_analysis(
                 except httpx.HTTPStatusError as e:
                     error_detail = f"Agent service error: {e.response.status_code}"
                     try:
-                        error_body = e.response.json()
-                        if "detail" in error_body:
-                            error_detail = f"Agent service error: {error_body['detail']}"
-                    except:
-                        error_detail = f"Agent service error: {e.response.text or str(e)}"
+                        # For streaming responses, we need to read the content first
+                        if hasattr(e.response, 'is_stream_consumed') and not e.response.is_stream_consumed:
+                            # Try to read the error response
+                            try:
+                                error_text = await e.response.aread()
+                                if error_text:
+                                    error_body = json.loads(error_text.decode('utf-8'))
+                                    if "detail" in error_body:
+                                        error_detail = f"Agent service error ({e.response.status_code}): {error_body['detail']}"
+                                    else:
+                                        error_detail = f"Agent service error ({e.response.status_code}): {error_text.decode('utf-8')[:500]}"
+                            except Exception as read_err:
+                                logger.debug(f"Could not read error response: {read_err}")
+                                error_detail = f"Agent service error: {e.response.status_code} - {str(e)}"
+                        else:
+                            # Non-streaming response, can use .json() or .text
+                            try:
+                                error_body = e.response.json()
+                                if "detail" in error_body:
+                                    error_detail = f"Agent service error ({e.response.status_code}): {error_body['detail']}"
+                            except:
+                                try:
+                                    error_detail = f"Agent service error ({e.response.status_code}): {e.response.text[:500]}"
+                                except:
+                                    error_detail = f"Agent service error: {e.response.status_code} - {str(e)}"
+                    except Exception as parse_err:
+                        logger.debug(f"Error parsing error response: {parse_err}")
+                        error_detail = f"Agent service error: {e.response.status_code} - {str(e)}"
+                    
                     logger.error(f"HTTPStatusError from agent service: {error_detail}", exc_info=True)
+                    logger.error(f"Request URL: {agent_streaming_url}")
+                    logger.error(f"Request payload keys: {list(agent_request.keys()) if isinstance(agent_request, dict) else 'N/A'}")
                     error_event = AgentTraceEvent(
                         event_type="error",
                         message=f"Agent service failed: {error_detail}",

@@ -49,30 +49,45 @@ class TestHealthEndpointGraphError:
     
     def test_health_endpoint_returns_200_on_graph_error(self, client):
         """Test that health endpoint returns HTTP 200 even when graph fails."""
-        with patch("server.get_graph", side_effect=Exception("Graph init failed")):
-            response = client.get("/health")
-            # Health endpoint MUST return 200 even on error (constitution requirement)
-            assert response.status_code == 200
+        # Health endpoint checks _graph_init_error directly, not get_graph()
+        # Need to patch all three globals to simulate error state
+        error = Exception("Graph init failed")
+        with patch("server._graph_instance", None):
+            with patch("server._graph_initializing", False):
+                with patch("server._graph_init_error", error):
+                    response = client.get("/health")
+                    # Health endpoint MUST return 200 even on error (constitution requirement)
+                    assert response.status_code == 200
     
     def test_health_endpoint_error_response(self, client):
         """Test health endpoint response when graph initialization fails."""
-        with patch("server.get_graph", side_effect=Exception("Graph init failed")):
-            response = client.get("/health")
-            data = response.json()
-            
-            assert data["status"] == "error"
-            assert data["graph_initialized"] is False
-            assert "error" in data
-            assert data["error"] is not None
+        # Health endpoint checks _graph_init_error directly, not get_graph()
+        # Need to patch all three globals to simulate error state
+        error = Exception("Graph init failed")
+        with patch("server._graph_instance", None):
+            with patch("server._graph_initializing", False):
+                with patch("server._graph_init_error", error):
+                    response = client.get("/health")
+                    data = response.json()
+                    
+                    assert data["status"] == "error"
+                    assert data["graph_initialized"] is False
+                    assert "error" in data
+                    assert data["error"] is not None
     
     def test_health_endpoint_includes_error_message(self, client):
         """Test that error message is included in response."""
         error_msg = "Failed to initialize graph"
-        with patch("server.get_graph", side_effect=Exception(error_msg)):
-            response = client.get("/health")
-            data = response.json()
-            
-            assert error_msg in data["error"]
+        error = Exception(error_msg)
+        # Health endpoint checks _graph_init_error directly, not get_graph()
+        # Need to patch all three globals to simulate error state
+        with patch("server._graph_instance", None):
+            with patch("server._graph_initializing", False):
+                with patch("server._graph_init_error", error):
+                    response = client.get("/health")
+                    data = response.json()
+                    
+                    assert error_msg in data["error"]
 
 
 class TestHealthEndpointResponseTime:
