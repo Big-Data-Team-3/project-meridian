@@ -1,0 +1,38 @@
+name: Agent Evaluations
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: "Ticker to evaluate"
+        required: false
+        default: "AAPL"
+      date:
+        description: "Trade date (YYYY-MM-DD)"
+        required: false
+        default: "2025-12-12"
+
+env:
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+jobs:
+  eval-agents:
+    name: Run agent eval sweep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Run agent eval script
+        run: |
+          TICKER="${{ github.event.inputs.ticker || 'AAPL' }}"
+          DATE_INPUT="${{ github.event.inputs.date }}"
+          if [ -z "$DATE_INPUT" ]; then
+            DATE_INPUT="$(date +%Y-%m-%d)"
+          fi
+          bash scripts/test_all_agents.sh "$TICKER" "$DATE_INPUT"
+
