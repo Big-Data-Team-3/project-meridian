@@ -26,11 +26,6 @@ COPY meridian-agents/models/ ./models/
 COPY meridian-agents/utils/ ./utils/
 COPY meridian-agents/default_config.py .
 
-# Copy client modules
-COPY gcp_client/ ./gcp_client/
-COPY sec-edgar-client/ ./sec-edgar-client/
-COPY yfinance_client/ ./yfinance_client/
-
 # Create necessary directories
 RUN mkdir -p dataflows/data_cache \
     && mkdir -p eval_results \
@@ -48,8 +43,10 @@ USER appuser
 EXPOSE 8001
 
 # Health check
+# Use PORT from environment or default to 8001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" || exit 1
+    CMD sh -c "python -c \"import urllib.request, os; port = os.getenv('PORT', '8001'); urllib.request.urlopen(f'http://localhost:{port}/health')\"" || exit 1
 
 # Start the API server
-CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]
+# Use PORT from environment (Cloud Run sets this automatically) or default to 8001
+CMD sh -c "python -m uvicorn server:app --host 0.0.0.0 --port ${PORT:-8001}"
