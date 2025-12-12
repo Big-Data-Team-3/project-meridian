@@ -20,39 +20,43 @@ WE ATTEST THAT WE HAVEN'T USED ANY OTHER STUDENTS' WORK IN OUR ASSIGNMENT AND AB
 ## Repository Operations (Constitution-Aligned)
 
 - **Services & Docs**
-  - Frontend (Next.js): `meridian-frontend/` with docs in `meridian-frontend/docs/`.
-  - Backend (FastAPI): `meridian-backend/` with docs in `meridian-backend/docs/`.
-  - Agents (FastAPI + LangGraph): `meridian-agents/` with docs in `meridian-agents/docs/` and eval guide in `docs/agents/evals/`.
+  - Frontend (Next.js): `meridian-frontend/` with docs in `docs/frontend`.
+  - Backend (FastAPI): `meridian-backend/` with docs in `docs/backend`.
+  - Agents (Agents + FastAPI + LangGraph): `meridian-agents/` with docs in `docs/agents` and eval guide in `docs/agents/EVAL_DOCUMENTATION.md`.
 
 - **Setup**
   - Python 3.11+: `pip install -r requirements.txt`
   - Node 20+: `cd meridian-frontend && npm install`
-  - Env (examples): `OPENAI_API_KEY`, `AGENTS_SERVICE_URL`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `GOOGLE_APPLICATION_CREDENTIALS`.
+  - Env (examples): `OPENAI_API_KEY`, `AGENTS_SERVICE_URL`, `INSTANCE_CONNECTION_NAME`, `DB_USER`, `DB_PASS`, `DB_NAME`, `DB_TYPE`, `GOOGLE_APPLICATION_CREDENTIALS`.
 
 - **Run**
-  - Backend: `cd meridian-backend && uvicorn server:app --reload --port 8000`
-  - Agents: `cd meridian-agents && uvicorn server:app --reload --port 8001`
-  - Frontend: `cd meridian-frontend && npm run dev` (localhost:3000)
+   Run all services simply using docker, instead of running them locally.
+
+   Make sure you have set your relevant variables in .env and meridian-frontend/.env.production
 
 - **Testing**
   - Backend: `cd meridian-backend && pytest -v` (DB env vars required for DB tests)
   - Agents: `cd meridian-agents && pytest -v`
-  - Frontend: `cd meridian-frontend && npm run test` (lint via `npm run lint`)
-  - Integration/e2e: see service `docs/tests.md` for scopes and env needs.
+  - Frontend: `cd meridian-frontend && npm test` (lint via `npm run lint`)
 
 - **Agent Evaluations**
-  - Local: `bash scripts/test_all_agents.sh AAPL 2025-12-12`
-  - CI: `.github/workflows/eval.yml` (`workflow_dispatch` with `ticker` and `date` inputs)
-  - Artifacts and datasets live under `docs/agents/evals/`.
+   `cd meridian-agents/tests/evals`
+   `python run_eval.py` (python3 if you use python3 or later)
 
 - **CI/CD**
-  - CI (`.github/workflows/ci.yml`): frontend lint/tests, backend pytest, agents pytest.
-  - Deploy (`.github/workflows/deploy.yml`): builds Docker images and deploys backend/agents to Cloud Run using `GCP_SA_KEY`, `GCP_PROJECT_ID`, `CLOUD_RUN_REGION`, service names.
-  - Eval (`.github/workflows/eval.yml`): manual/triggered agent eval sweep; depends on `OPENAI_API_KEY` and data provider creds.
+  - Deploy (`.github/workflows/deploy.yml`): GitHub Actions workflow that builds Docker images and deploys backend and agents services to Google Cloud Run. Uses key secrets: `GCP_SA_KEY`, `GCP_PROJECT_ID`, `CLOUD_RUN_REGION`, among others.
+  - Agent Evaluation (`.github/workflows/eval.yml`): GitHub Actions workflow for manual or on-demand evaluation runs of all LLM agents; triggered with custom inputs for ticker/date. Requires secrets: `OPENAI_API_KEY`, `GCP_PROJECT_ID`, and data provider credentials.
 
 - **Disclosures**
-  - AI tooling: OpenAI GPT models used for agent inference; evaluations rely on same provider.
+  - AI tooling: OpenAI GPT models used for agent inference; evaluations rely on same provider; Used Cursor and Github Spec-kit for deployment.
   - Cloud: GCP (Cloud Run, Cloud SQL). Secrets must be stored in GitHub Secrets or GCP Secret Manager; no plaintext commits.
+
+-- **Resources to Refer**
+
+   - Codelabs URL: https://codelabs-preview.appspot.com/?file_id=1Y3G1tT2-ot427MmtY5ijG5mVptIHaUzSP7aKOZF_CIk#0
+   - Video Demo: https://drive.google.com/drive/folders/1kK_lS2HqRtlUVU5WdBvE0ZKYE7lrd_r0?usp=sharing
+   - Project Live URL: https://meridian-frontend-959890924234.us-central1.run.app/chat
+   - Project Backend URL: https://meridian-backend-959890924234.us-central1.run.app/chat
 
 ---
 
@@ -134,6 +138,40 @@ Our multi-agent LLM system provides:
 5. **Adaptive Learning**: Continuous evaluation and prompt refinement based on backtesting results
 6. **Risk Management**: Dedicated risk assessment agents and HITL gates prevent dangerous recommendations
 
+### 4.3 Scripts
+
+1. setup_gcp.sh — GCP project and service accounts
+Purpose: Initial GCP setup
+Creates/verifies GCP project
+Enables required APIs (Compute, Storage, SQL, Cloud Run, etc.)
+Creates service accounts (compute-engine-sa, cloud-sql-sa, cloud-run-sa, airflow-sa)
+Grants IAM permissions
+Usage: bash scripts/setup_gcp.sh
+2. setup_cloud_sql.sh — Cloud SQL database
+Purpose: Creates PostgreSQL instance
+Creates Cloud SQL instance
+Creates database and user
+Sets up connection configuration
+Usage: bash scripts/setup_cloud_sql.sh
+3. gcp_bucket_setup.sh — Cloud Storage buckets
+Purpose: Creates storage buckets
+Creates meridian-raw-data bucket with folders (fred/, sec/, yfinance/)
+Creates meridian-embeddings bucket with folders (documents/, metadata/, backups/)
+Usage: bash scripts/gcp_bucket_setup.sh
+4. docker_deployment.sh — Local Docker deployment
+Purpose: Run services locally with Docker
+Builds Docker images (frontend, backend, agents)
+Starts containers with proper networking
+Usage: bash scripts/docker_deployment.sh
+5. deploy_to_cloud_run.sh — Cloud Run deployment
+Purpose: Deploys to GCP Cloud Run
+Validates prerequisites
+Builds and pushes Docker images to Artifact Registry
+Deploys services to Cloud Run
+Runs database migrations
+Tests deployment
+Usage: bash scripts/deploy_to_cloud_run.sh
+
 ---
 
 ## 5. Methodology
@@ -154,7 +192,7 @@ Our multi-agent LLM system provides:
 - **GCP**: Core platform for deployment of agents, backend, frontend, caching and storage.
 
 **LLM Providers and Agent Framework**:
-- **OpenAI GPT-3.5o**: Primary LLM for Agentic Implementation
+- **OpenAI GPT-4**: Primary LLM for Agentic Implementation
 - **OpenAI AgentKit**: OpenAI's Agentic Framework for building and deploying agents
 
 **API Framework**: 
@@ -168,7 +206,7 @@ Our multi-agent LLM system provides:
 
 ### 5.3 Architecture
 
-<img width="707" height="1600" alt="image" src="https://github.com/user-attachments/assets/30f6770a-40df-4fd3-b1ea-115e9dfa508e" />
+![System Architecture](image.jpeg)
 
 #### System Architecture Overview
 
