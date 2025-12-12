@@ -267,13 +267,14 @@ fi
 echo "Monitoring - Write metrics added to the service account"
 
 # Get project number
-if gcloud projects describe $PROJECT_ID --format="value(projectNumber)" | grep -q $PROJECT_NUMBER; then
-    echo "✅ Project number already exists"
-else
-    echo "Getting project number..."
-    PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
-    echo "✅ Project number: $PROJECT_NUMBER"
+echo "Getting project number..."
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+if [ -z "$PROJECT_NUMBER" ]; then
+    echo "❌ ERROR: Failed to get project number for $PROJECT_ID"
+    echo "   Please verify the project exists and you have access"
+    exit 1
 fi
+echo "✅ Project number: $PROJECT_NUMBER"
 if gcloud projects get-iam-policy $PROJECT_ID --format=yaml | grep -q "cloud-run-sa@$PROJECT_ID.iam.gserviceaccount.com"; then
     echo "✅ IAM policy binding for Cloud Run Service Account to Container Registry - Push images already exists"
 else
@@ -345,19 +346,126 @@ fi
 
 # Wait for all service accounts to be fully propagated in GCP before proceeding
 echo ""
-echo "⏳ Waiting 5 seconds for all service accounts to be fully propagated in GCP..."
-sleep 5
+echo "⏳ Waiting 10 seconds for all service accounts to be fully propagated in GCP..."
+sleep 10
 echo "✅ Service account propagation wait complete"
 echo ""
 
-# Download all service account keys (JSON) and save them in a folder called "config"
-mkdir -p config
-gcloud iam service-accounts keys create config/airflow-sa.json --iam-account airflow-sa@$PROJECT_ID.iam.gserviceaccount.com --project=$PROJECT_ID
-gcloud iam service-accounts keys create config/cloud-run-sa.json --iam-account cloud-run-sa@$PROJECT_ID.iam.gserviceaccount.com --project=$PROJECT_ID
-gcloud iam service-accounts keys create config/compute-engine-sa.json --iam-account compute-engine-sa@$PROJECT_ID.iam.gserviceaccount.com --project=$PROJECT_ID
-gcloud iam service-accounts keys create config/cloud-sql-sa.json --iam-account cloud-sql-sa@$PROJECT_ID.iam.gserviceaccount.com --project=$PROJECT_ID
+# Function to delete all existing keys for a service account
+delete_all_service_account_keys() {
+    local sa_name=$1
+    local sa_email="${sa_name}@${PROJECT_ID}.iam.gserviceaccount.com"
+    
+    # Check if service account exists
+    if ! gcloud iam service-accounts describe "$sa_email" --project=$PROJECT_ID &>/dev/null; then
+        echo "⚠️  Service account $sa_name does not exist. Skipping key deletion."
+        return 0
+    fi
+    
+    # Get all key IDs (excluding the managed key which can't be deleted)
+    local key_ids=$(gcloud iam service-accounts keys list --iam-account="$sa_email" --project=$PROJECT_ID --format="value(name)" --filter="keyType=USER_MANAGED" 2>/dev/null)
+    
+    if [ -z "$key_ids" ]; then
+        echo "ℹ️  No existing keys found for $sa_name"
+        return 0
+    fi
+    
+    local key_count=$(echo "$key_ids" | wc -l | tr -d ' ')
+    echo "Found $key_count existing key(s) for $sa_name. Deleting..."
+    
+    # Delete each key
+    local deleted=0
+    local failed=0
+    while IFS= read -r key_id; do
+        if [ -n "$key_id" ]; then
+            if gcloud iam service-accounts keys delete "$key_id" --iam-account="$sa_email" --project=$PROJECT_ID --quiet 2>/dev/null; then
+                deleted=$((deleted + 1))
+            else
+                failed=$((failed + 1))
+                echo "   ⚠️  Failed to delete key: $key_id"
+            fi
+        fi
+    done <<< "$key_ids"
+    
+    if [ $deleted -gt 0 ]; then
+        echo "✅ Deleted $deleted key(s) for $sa_name"
+    fi
+    if [ $failed -gt 0 ]; then
+        echo "⚠️  Failed to delete $failed key(s) for $sa_name"
+    fi
+    
+    return 0
+}
 
-echo "Service account keys downloaded and saved to config folder"
+# Function to create or update service account key
+create_service_account_key() {
+    local sa_name=$1
+    local sa_email="${sa_name}@${PROJECT_ID}.iam.gserviceaccount.com"
+    local key_file="config/${sa_name}.json"
+    
+    # Check if service account exists
+    if ! gcloud iam service-accounts describe "$sa_email" --project=$PROJECT_ID &>/dev/null; then
+        echo "❌ ERROR: Service account $sa_name does not exist. Skipping key creation."
+        return 1
+    fi
+    
+    # Remove existing key file if it exists
+    if [ -f "$key_file" ]; then
+        echo "Removing existing key file: $key_file"
+        rm -f "$key_file"
+    fi
+    
+    # Create the key
+    echo "Creating service account key for $sa_name..."
+    if gcloud iam service-accounts keys create "$key_file" \
+        --iam-account="$sa_email" \
+        --project=$PROJECT_ID 2>&1; then
+        echo "✅ Service account key created: $key_file"
+        return 0
+    else
+        local exit_code=$?
+        echo "❌ ERROR: Failed to create service account key for $sa_name (exit code: $exit_code)"
+        echo "   This might be due to:"
+        echo "   - Service account not fully propagated (wait a few minutes and retry)"
+        echo "   - Maximum key limit reached (10 keys per service account)"
+        echo "   - Insufficient permissions"
+        echo "   - Service account doesn't exist"
+        return 1
+    fi
+}
+
+# Download all service account keys (JSON) and save them in a folder called "config"
+echo "--------------------------------"
+echo "Managing service account keys..."
+echo "--------------------------------"
+mkdir -p config
+
+# Delete all existing keys for each service account
+echo ""
+echo "Step 1: Deleting all existing service account keys..."
+echo "---------------------------------------------------"
+delete_all_service_account_keys "airflow-sa"
+delete_all_service_account_keys "cloud-run-sa"
+delete_all_service_account_keys "compute-engine-sa"
+delete_all_service_account_keys "cloud-sql-sa"
+
+# Wait a moment for deletions to propagate
+echo ""
+echo "⏳ Waiting 3 seconds for key deletions to propagate..."
+sleep 3
+
+# Create new keys for each service account
+echo ""
+echo "Step 2: Creating new service account keys..."
+echo "--------------------------------------------"
+create_service_account_key "airflow-sa"
+create_service_account_key "cloud-run-sa"
+create_service_account_key "compute-engine-sa"
+create_service_account_key "cloud-sql-sa"
+
+echo ""
+echo "✅ Service account key management complete"
+echo "   New keys are saved in the config/ folder"
 
 echo "--------------------------------"
 echo "Authenticating with GCP application default..."
