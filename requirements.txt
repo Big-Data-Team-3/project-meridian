@@ -51,6 +51,9 @@ fastapi
 uvicorn[standard]
 httpx
 nest-asyncio
+pytest-asyncio
+pytest-mock
+
 
 # OpenAI Chat Application
 openai
