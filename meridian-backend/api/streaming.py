@@ -378,8 +378,11 @@ async def stream_agent_analysis(
                                                 # Store the complete agent response for metadata
                                                 full_agent_response = data
                                                 
-                                                # Extract full response text - prefer "response" field which contains full analysis
+                                                # Extract full response text - prefer formatted response, then full analysis response
+                                                # Check state for formatted_response first (query-aware formatted response)
+                                                state_data = data.get("state", {})
                                                 final_response_text = (
+                                                    state_data.get("formatted_response") or  # Prefer formatted response (query-aware)
                                                     data.get("response") or  # Full analysis response
                                                     data.get("trader_investment_plan") or  # Trader's full plan
                                                     data.get("investment_plan") or  # Investment plan

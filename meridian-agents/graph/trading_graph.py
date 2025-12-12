@@ -31,6 +31,7 @@ from .orchestrator import Orchestrator
 from .orchestrator.models import AggregatedContext
 from .synthesizer import FinalSynthesizer
 from .synthesizer.models import SynthesizerOutput
+from .response_formatter import ResponseFormatter
 
 # Import streaming utilities
 try:
@@ -459,22 +460,120 @@ class TradingAgentsGraph:
             # For news-only or simple analysis queries (no debate/risk phases), don't extract a decision
             if is_news_only or not requires_decision_for_streaming:
                 streaming_decision = None
-                # Use appropriate report as response
-                if is_news_only:
-                    streaming_response = (
-                        final_state.get("information_report") or
-                        final_state.get("news_report") or
-                        final_state.get("sentiment_report") or
-                        "News summary not available"
-                    )
+                
+                # Apply response formatting for non-workflow queries (single-agent or multi-agent)
+                if query and not requires_decision_for_streaming:
+                    try:
+                        formatter = ResponseFormatter()
+                        
+                        # Determine if this is multi-agent (multiple analysts but no debate/risk)
+                        analyst_agents = [agent_id for agent_id in (execution_plan.agents if execution_plan else [])
+                                          if agent_id in ["market_analyst", "fundamentals_analyst", "information_analyst"]]
+                        is_multi_agent = len(analyst_agents) > 1
+                        
+                        # Emit event before formatting
+                        if self.enable_streaming and self.event_emitter:
+                            format_start_event = AgentStreamEvent(
+                                event_type="formatting_start",
+                                message="Formatting response based on agent output",
+                                data={"query": query, "company": company_name}
+                            )
+                            self.event_emitter.emit(format_start_event)
+                        
+                        formatted_response = formatter.format_response(
+                            original_query=query,
+                            final_state=final_state,
+                            aggregated_context=aggregated_context,
+                            is_multi_agent=is_multi_agent,
+                            company_name=company_name,
+                            trade_date=str(trade_date),
+                            context_messages=context,
+                            auto_fallback=True
+                        )
+                        
+                        # Check if fallback was used by checking if we have agent output available
+                        # Check both final_state and aggregated_context
+                        has_agent_output_in_state = (
+                            final_state.get("market_report") or
+                            final_state.get("fundamentals_report") or
+                            final_state.get("information_report")
+                        )
+                        
+                        # Also check aggregated_context
+                        has_agent_output_in_context = False
+                        if aggregated_context:
+                            for agent_id in ["market_analyst", "fundamentals_analyst", "information_analyst"]:
+                                if agent_id in aggregated_context.get_successful_agents():
+                                    has_agent_output_in_context = True
+                                    break
+                        
+                        has_agent_output = has_agent_output_in_state or has_agent_output_in_context
+                        
+                        # If no agent output available but we got a response (not error message), it's from fallback LLM
+                        used_fallback = (
+                            not has_agent_output and 
+                            formatted_response and 
+                            "No agent output available" not in formatted_response and
+                            "No agent outputs available" not in formatted_response
+                        )
+                        
+                        if used_fallback and self.enable_streaming and self.event_emitter:
+                            # Emit fallback event
+                            fallback_event = AgentStreamEvent(
+                                event_type="fallback_llm_used",
+                                message="Using fallback LLM response (agent output not available)",
+                                data={
+                                    "query": query,
+                                    "company": company_name,
+                                    "date": str(trade_date),
+                                    "response_length": len(formatted_response)
+                                }
+                            )
+                            self.event_emitter.emit(fallback_event)
+                        
+                        # Use formatted response (which is now either formatted agent output OR fallback LLM response)
+                        streaming_response = formatted_response
+                        
+                        # Store formatted response in state
+                        final_state["formatted_response"] = formatted_response
+                        final_state["response_source"] = "fallback_llm" if used_fallback else "formatted_agent_output"
+                        
+                        print(f"✅ Response ready (source: {final_state['response_source']}): '{query[:100]}...'")
+                    except Exception as e:
+                        print(f"⚠️  Response formatting failed: {str(e)}. Using original report.")
+                        # Fallback to original behavior
+                        if is_news_only:
+                            streaming_response = (
+                                final_state.get("information_report") or
+                                final_state.get("news_report") or
+                                final_state.get("sentiment_report") or
+                                "News summary not available"
+                            )
+                        else:
+                            # Simple analysis query - use the relevant analyst report
+                            streaming_response = (
+                                final_state.get("market_report") or
+                                final_state.get("fundamentals_report") or
+                                final_state.get("information_report") or
+                                "Analysis report not available"
+                            )
                 else:
-                    # Simple analysis query - use the relevant analyst report
-                    streaming_response = (
-                        final_state.get("market_report") or
-                        final_state.get("fundamentals_report") or
-                        final_state.get("information_report") or
-                        "Analysis report not available"
-                    )
+                    # No query available or formatting skipped - use original behavior
+                    if is_news_only:
+                        streaming_response = (
+                            final_state.get("information_report") or
+                            final_state.get("news_report") or
+                            final_state.get("sentiment_report") or
+                            "News summary not available"
+                        )
+                    else:
+                        # Simple analysis query - use the relevant analyst report
+                        streaming_response = (
+                            final_state.get("market_report") or
+                            final_state.get("fundamentals_report") or
+                            final_state.get("information_report") or
+                            "Analysis report not available"
+                        )
             else:
                 # Full workflow - extract decision from workflow outputs
                 streaming_decision = None
@@ -578,7 +677,8 @@ class TradingAgentsGraph:
             "information_report",
             "investment_plan",
             "trader_investment_plan",
-            "final_trade_decision"
+            "final_trade_decision",
+            "formatted_response"  # Add formatted response
         ]
         
         for field in string_fields:

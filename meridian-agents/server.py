@@ -911,6 +911,8 @@ async def analyze_single_agent(agent_type: str, request_data: SingleAgentRequest
         
         # Process conversation context if provided
         context_messages = None
+        query = None  # Extract query from conversation context
+        
         if request_data.conversation_context:
             MAX_CONTEXT_MESSAGES = 20
             context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
@@ -922,12 +924,29 @@ async def analyze_single_agent(agent_type: str, request_data: SingleAgentRequest
                 }
                 for msg in context_list
             ]
+            
+            # Extract query from conversation context (last user message)
+            user_messages = [msg for msg in request_data.conversation_context if msg.role == "user"]
+            if user_messages:
+                query = user_messages[-1].content.strip()
+                logger.info(
+                    f"✅ Extracted query from context: '{query[:200]}...'",
+                    extra={"extra_fields": {"request_id": request_id, "query_preview": query[:200]}}
+                )
+        
+        # If no query found, generate a default based on agent type
+        if not query:
+            query = f"Analyze {request_data.company_name} using {agent_type} analysis as of {request_data.trade_date}"
+            logger.info(
+                f"⚠️ Using default query: '{query}'",
+                extra={"extra_fields": {"request_id": request_id}}
+            )
         
         # Run analysis
         final_state, decision, aggregated_context, synthesizer_output = await graph.propagate(
             request_data.company_name.strip().upper(),
             request_data.trade_date,
-            query=None,
+            query=query,  # Pass the extracted query instead of None
             context=context_messages
         )
         
@@ -1022,6 +1041,8 @@ async def analyze_multi_agent(request_data: MultiAgentRequest, request: Request)
         
         # Process conversation context if provided
         context_messages = None
+        query = None  # Extract query from conversation context
+        
         if request_data.conversation_context:
             MAX_CONTEXT_MESSAGES = 20
             context_list = request_data.conversation_context[-MAX_CONTEXT_MESSAGES:]
@@ -1033,12 +1054,29 @@ async def analyze_multi_agent(request_data: MultiAgentRequest, request: Request)
                 }
                 for msg in context_list
             ]
+            
+            # Extract query from conversation context (last user message)
+            user_messages = [msg for msg in request_data.conversation_context if msg.role == "user"]
+            if user_messages:
+                query = user_messages[-1].content.strip()
+                logger.info(
+                    f"✅ Extracted query from context: '{query[:200]}...'",
+                    extra={"extra_fields": {"request_id": request_id, "query_preview": query[:200]}}
+                )
+        
+        # If no query found, generate a default
+        if not query:
+            query = f"Analyze {request_data.company_name} using {', '.join(request_data.agents)} analysis as of {request_data.trade_date}"
+            logger.info(
+                f"⚠️ Using default query: '{query}'",
+                extra={"extra_fields": {"request_id": request_id}}
+            )
         
         # Run analysis
         final_state, decision, aggregated_context, synthesizer_output = await graph.propagate(
             request_data.company_name.strip().upper(),
             request_data.trade_date,
-            query=None,
+            query=query,  # Pass the extracted query instead of None
             context=context_messages
         )
         
