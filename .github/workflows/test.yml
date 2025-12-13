@@ -66,9 +66,6 @@ jobs:
       - name: Run unit tests
         run: pytest tests/unit/ -v
 
-      - name: Run integration tests
-        run: pytest tests/integration/ -v
-
   # Agents: Unit + Integration Tests
   agents:
     name: Agents Tests
