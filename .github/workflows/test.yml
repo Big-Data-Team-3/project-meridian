@@ -40,13 +40,14 @@ jobs:
       run:
         working-directory: meridian-backend
     env:
-      DB_HOST: ${{ secrets.INSTANCE_CONNECTION_NAME || 'localhost' }}
+      INSTANCE_CONNECTION_NAME: ${{ secrets.INSTANCE_CONNECTION_NAME || 'localhost' }}
       DB_USER: ${{ secrets.DB_USER || 'postgres' }}
-      DB_PASSWORD: ${{ secrets.DB_PASS || 'postgres' }}
+      DB_PASS: ${{ secrets.DB_PASS || 'postgres' }}
       DB_NAME: ${{ secrets.DB_NAME || 'postgres' }}
       DB_TYPE: postgresql
       AGENTS_SERVICE_URL: ${{ secrets.AGENTS_SERVICE_URL || 'http://localhost:8001' }}
       GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS || './config/cloud-sql-sa.json' }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

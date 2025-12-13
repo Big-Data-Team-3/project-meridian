@@ -65,9 +65,9 @@ def mock_config(monkeypatch, request):
     
     if not (requires_db or requires_gcp):
         # Database config (only set for non-integration tests)
-        monkeypatch.setenv("DB_HOST", "test-host")
+        monkeypatch.setenv("INSTANCE_CONNECTION_NAME", "test-host")
         monkeypatch.setenv("DB_USER", "test-user")
-        monkeypatch.setenv("DB_PASSWORD", "test-password")
+        monkeypatch.setenv("DB_PASS", "test-password")
         monkeypatch.setenv("DB_NAME", "test-db")
         monkeypatch.setenv("DB_TYPE", "postgresql")
     
