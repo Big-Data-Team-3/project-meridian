@@ -26,6 +26,7 @@ WE ATTEST THAT WE HAVEN'T USED ANY OTHER STUDENTS' WORK IN OUR ASSIGNMENT AND AB
 
 - **Setup**
   - Python 3.11+: `pip install -r requirements.txt`
+  - Install gcloud cli before starting script runs.
   - Node 20+: `cd meridian-frontend && npm install`
   - Env (examples): `OPENAI_API_KEY`, `AGENTS_SERVICE_URL`, `INSTANCE_CONNECTION_NAME`, `DB_USER`, `DB_PASS`, `DB_NAME`, `DB_TYPE`, `GOOGLE_APPLICATION_CREDENTIALS`.
 
@@ -86,6 +87,10 @@ Our primary goals are to:
 4. **User-Facing Application**: Deliver an interactive dashboard where users input company names and receive AI-generated investment recommendations with full transparency into the multi-agent reasoning process
 
 ---
+
+## Dry Run Instructions:
+
+- Please follow the [DRY_RUN.md](https://github.com/Big-Data-Team-3/project-meridian/blob/main/DRY_RUN.md) file for detailed instructions to deploy this..
 
 ## 3. Project Overview
 
