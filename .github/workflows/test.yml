@@ -2,13 +2,10 @@ name: Test (Unit & Integration)
 
 # Trigger on pull requests from users/*/** branches to develop
 on:
-  pull_request:
+  push:
     branches:
-      - develop
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.github/**'
+      - users/*/**
+
 
 jobs:
   # Frontend: Lint + Unit + Integration Tests
