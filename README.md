@@ -90,9 +90,7 @@ Our primary goals are to:
 
 ## Dry Run Instructions:
 
-- Make sure you have installed gcloud cli (preferrably from homebrew)
-- Start by setting all the required env variables (PROJECT_ID, OPENAI_API_KEY, GOOGLE_APPLICATION_CREDENTIALS, etc..)
-- After setting the relevant customary env variables (in .env, meridian-frontend/.env.production), before running them, make a authentication client and get its credentials and save it inside the config folder.
+- Please follow the [DRY_RUN.md](https://github.com/Big-Data-Team-3/project-meridian/blob/main/DRY_RUN.md) file for detailed instructions to deploy this..
 
 ## 3. Project Overview
 
